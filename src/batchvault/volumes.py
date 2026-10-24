@@ -23,7 +23,7 @@ def split_volume_name(name: str) -> tuple[str, int] | None:
 
 
 def _same_name(a: str, b: str) -> bool:
-    """Compare names ignoring case and Unicode form (macOS stores accents decomposed)."""
+    """Compare names ignoring case and Unicode form (macOS decomposes accents)."""
     return (
         unicodedata.normalize("NFC", a).casefold()
         == unicodedata.normalize("NFC", b).casefold()
