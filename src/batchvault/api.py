@@ -7,6 +7,7 @@ import logging
 import os
 import tempfile
 import time
+import unicodedata
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -671,7 +672,8 @@ def _restore_one(
 
             if entry:
                 names = [path.name for path in restored]
-                if names != [entry.name]:
+                # macOS may hand back the same name in another Unicode form.
+                if [_nfc(n) for n in names] != [_nfc(entry.name)]:
                     return FileResult(
                         volume,
                         Status.FAILED,
@@ -687,8 +689,9 @@ def _restore_one(
             destination_dir.mkdir(parents=True, exist_ok=True)
             final = []
             for path in restored:
-                os.replace(path, destination_dir / path.name)
-                final.append(destination_dir / path.name)
+                name = entry.name if entry else path.name
+                os.replace(path, destination_dir / name)
+                final.append(destination_dir / name)
 
         size = sum(path.stat().st_size for path in final)
         checked = "checksum verified" if entry else "checksum not verified"
@@ -696,6 +699,10 @@ def _restore_one(
         return FileResult(volume, Status.SUCCESS, message, size, restored=final)
     except (BatchVaultError, OSError) as exc:
         return FileResult(volume, Status.FAILED, str(exc))
+
+
+def _nfc(name: str) -> str:
+    return unicodedata.normalize("NFC", name)
 
 
 def _matches(path: Path, entry: ManifestEntry) -> bool:

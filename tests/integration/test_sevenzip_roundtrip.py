@@ -1,4 +1,5 @@
 import os
+import unicodedata
 
 import pytest
 
@@ -26,12 +27,15 @@ def test_roundtrip_with_split_volumes(tmp_path, source):
     volumes = engine.pack(source, archives, PackOptions(volume_size=4096, jobs=2))
 
     assert len(volumes) > 1
-    assert volumes[0].name == "données 1.bin.7z.001"
+    # macOS may report accents in decomposed form; the name is the same.
+    assert unicodedata.normalize("NFC", volumes[0].name) == "données 1.bin.7z.001"
 
     engine.test(volumes[0])
 
     restored = engine.unpack(volumes[2], tmp_path / "restored")
-    assert [p.name for p in restored] == [source.name]
+    assert [unicodedata.normalize("NFC", p.name) for p in restored] == [
+        unicodedata.normalize("NFC", source.name)
+    ]
     assert restored[0].read_bytes() == source.read_bytes()
 
 
