@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import time
+import unicodedata
 from pathlib import Path
 
 from batchvault.errors import VolumeError
@@ -21,6 +22,14 @@ def split_volume_name(name: str) -> tuple[str, int] | None:
     return match.group("base"), int(match.group("number"))
 
 
+def _same_name(a: str, b: str) -> bool:
+    """Compare names ignoring case and Unicode form (macOS stores accents decomposed)."""
+    return (
+        unicodedata.normalize("NFC", a).casefold()
+        == unicodedata.normalize("NFC", b).casefold()
+    )
+
+
 def existing_volumes(directory: Path, base: str) -> list[Path]:
     """Volumes of ``base`` already present in ``directory``, in volume order."""
     if not directory.is_dir():
@@ -29,7 +38,7 @@ def existing_volumes(directory: Path, base: str) -> list[Path]:
     found = []
     for path in directory.iterdir():
         parsed = split_volume_name(path.name)
-        if path.is_file() and parsed and parsed[0].casefold() == base.casefold():
+        if path.is_file() and parsed and _same_name(parsed[0], base):
             found.append((parsed[1], path))
     return [path for _, path in sorted(found)]
 

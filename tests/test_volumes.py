@@ -43,3 +43,14 @@ def test_find_volumes_rejects_non_volume(tmp_path):
 
 def test_existing_volumes_missing_directory(tmp_path):
     assert existing_volumes(tmp_path / "nope", "a.7z") == []
+
+
+def test_existing_volumes_match_names_in_any_unicode_form(tmp_path):
+    composed = "données.bin.7z"
+    decomposed = "données.bin.7z"
+    (tmp_path / f"{decomposed}.001").write_bytes(b"x")
+    (tmp_path / f"{decomposed}.002").write_bytes(b"x")
+
+    found = existing_volumes(tmp_path, composed)
+
+    assert [path.name for path in found] == [f"{decomposed}.001", f"{decomposed}.002"]

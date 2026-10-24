@@ -1,6 +1,7 @@
 # BatchVault
 
 [![Tests](https://github.com/coldsofttech/BatchVault/actions/workflows/tests.yml/badge.svg)](https://github.com/coldsofttech/BatchVault/actions/workflows/tests.yml)
+[![E2E Tests](https://github.com/coldsofttech/BatchVault/actions/workflows/e2e.yml/badge.svg)](https://github.com/coldsofttech/BatchVault/actions/workflows/e2e.yml)
 [![Lint](https://github.com/coldsofttech/BatchVault/actions/workflows/lint.yml/badge.svg)](https://github.com/coldsofttech/BatchVault/actions/workflows/lint.yml)
 [![Release](https://img.shields.io/github/v/release/coldsofttech/BatchVault?logo=github)](https://github.com/coldsofttech/BatchVault/releases)
 [![PyPI](https://img.shields.io/pypi/v/batchvault?logo=pypi&logoColor=white)](https://pypi.org/project/batchvault/)
