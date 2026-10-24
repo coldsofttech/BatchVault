@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or code
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: BatchVault version
+      description: Output of `batchvault --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options: [auto, native, 7zip]
+  - type: input
+    id: platform
+    attributes:
+      label: OS and Python version
+  - type: textarea
+    id: log
+    attributes:
+      label: Log or error output
+      description: Run `batchvault doctor` and attach the relevant lines of the log file. Remove anything private.
+      render: text

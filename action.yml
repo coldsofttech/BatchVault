@@ -1,0 +1,255 @@
+name: BatchVault
+description: Archive, split, verify and restore files with BatchVault.
+author: coldsofttech
+
+branding:
+  icon: archive
+  color: blue
+
+inputs:
+  command:
+    description: "What to run: pack, unpack or verify."
+    default: pack
+  files:
+    description: Files to archive (pack), one path per line.
+    default: ""
+  list-file:
+    description: Text or JSON list of files to archive (pack).
+    default: ""
+  source:
+    description: Manifest, folder, volume or list file (unpack and verify).
+    default: ""
+  output:
+    description: Output folder. Defaults to archives (pack) or restored (unpack).
+    default: ""
+  engine:
+    description: auto, native or 7zip (pack).
+    default: auto
+  format:
+    description: Native engine format - xz, gzip, bzip2 or store (pack).
+    default: ""
+  level:
+    description: Compression level 0-9, or auto to pick one per file type (pack).
+    default: auto
+  volume-size:
+    description: Volume size such as 500k, 10m or 2g (pack).
+    default: 10m
+  jobs:
+    description: Worker threads to use; 0 means none, one file at a time.
+    default: "0"
+  include:
+    description: Only keep matching paths, one glob per line (pack).
+    default: ""
+  exclude:
+    description: Drop matching paths, one glob per line (pack).
+    default: ""
+  root:
+    description: Keep folders, storing each file relative to this folder (pack).
+    default: ""
+  force:
+    description: Replace existing archives (pack) or files (unpack).
+    default: "false"
+  verify:
+    description: Test each archive after creating it (pack).
+    default: "false"
+  manifest:
+    description: Manifest location (pack).
+    default: ""
+  against:
+    description: Folder of original files to compare with (verify).
+    default: ""
+  seven-zip:
+    description: Path to a 7-Zip executable (optional).
+    default: ""
+  version:
+    description: >-
+      BatchVault version to install from PyPI. Empty installs the version
+      that matches this action's ref.
+    default: ""
+  python-version:
+    description: Python version used to run BatchVault.
+    default: "3.12"
+  upload-artifact:
+    description: Upload the output folder as a workflow artifact.
+    default: "false"
+  artifact-name:
+    description: Name of the uploaded artifact.
+    default: batchvault
+  update:
+    description: Skip unchanged files and re-archive changed ones (pack, unpack).
+    default: "false"
+  retries:
+    description: Retry a file this many times after an I/O or engine error.
+    default: "3"
+  encrypt:
+    description: Encrypt the archives (pack). Needs the password input.
+    default: "false"
+  password:
+    description: Archive password for pack --encrypt, unpack and verify. Use a secret.
+    default: ""
+  sign-key:
+    description: Path to an Ed25519 private key used to sign the manifest (pack).
+    default: ""
+  public-key:
+    description: Public key; unpack and verify then require a valid signature.
+    default: ""
+  fail-on-error:
+    description: Fail the step if any file failed or was skipped.
+    default: "true"
+
+outputs:
+  status:
+    description: success, failed, skipped or partial.
+    value: ${{ steps.run.outputs.status }}
+  result-json:
+    description: Path of the JSON result file.
+    value: ${{ steps.run.outputs.result-json }}
+  output:
+    description: The output folder that was used.
+    value: ${{ steps.run.outputs.output }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install BatchVault
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        ACTION_PATH: ${{ github.action_path }}
+        NEEDS_CRYPTO: ${{ inputs.encrypt == 'true' || inputs.password != '' || inputs.sign-key != '' || inputs.public-key != '' }}
+      run: |
+        extras=""
+        [ "$NEEDS_CRYPTO" = "true" ] && extras="[crypto]"
+        if [ -n "$VERSION" ]; then
+          python -m pip install --quiet "batchvault${extras}==$VERSION"
+        else
+          python -m pip install --quiet "${ACTION_PATH}${extras}"
+        fi
+
+    - name: Run BatchVault
+      id: run
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.command }}
+        FILES: ${{ inputs.files }}
+        LIST_FILE: ${{ inputs.list-file }}
+        SOURCE: ${{ inputs.source }}
+        OUTPUT: ${{ inputs.output }}
+        ENGINE: ${{ inputs.engine }}
+        FORMAT: ${{ inputs.format }}
+        LEVEL: ${{ inputs.level }}
+        VOLUME_SIZE: ${{ inputs.volume-size }}
+        JOBS: ${{ inputs.jobs }}
+        INCLUDE: ${{ inputs.include }}
+        EXCLUDE: ${{ inputs.exclude }}
+        ROOT: ${{ inputs.root }}
+        FORCE: ${{ inputs.force }}
+        VERIFY: ${{ inputs.verify }}
+        MANIFEST: ${{ inputs.manifest }}
+        AGAINST: ${{ inputs.against }}
+        SEVEN_ZIP: ${{ inputs.seven-zip }}
+        UPDATE: ${{ inputs.update }}
+        RETRIES: ${{ inputs.retries }}
+        ENCRYPT: ${{ inputs.encrypt }}
+        SIGN_KEY: ${{ inputs.sign-key }}
+        PUBLIC_KEY: ${{ inputs.public-key }}
+        BATCHVAULT_PASSWORD: ${{ inputs.password }}
+        FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        PYTHONUTF8: "1"
+        BATCHVAULT_LOG_DIR: ${{ runner.temp }}/batchvault-logs
+      run: |
+        # Inputs reach the command only through environment variables and an
+        # argument array, never through shell interpolation.
+        case "$COMMAND" in
+          pack|unpack|verify) ;;
+          *) echo "::error::command must be pack, unpack or verify"; exit 2 ;;
+        esac
+
+        # Keep the password out of the logs even if it did not come from a secret.
+        [ -n "$BATCHVAULT_PASSWORD" ] && echo "::add-mask::$BATCHVAULT_PASSWORD"
+
+        # Options go first and file paths come after "--", so a path that starts
+        # with "-" is never read as an option.
+        args=(--json)
+        positional=()
+        [ -n "$JOBS" ] && args+=(--jobs "$JOBS")
+        [ -n "$SEVEN_ZIP" ] && args+=(--7z "$SEVEN_ZIP")
+
+        case "$COMMAND" in
+          pack)
+            while IFS= read -r line; do [ -n "$line" ] && positional+=("$line"); done <<< "$FILES"
+            [ -n "$LIST_FILE" ] && args+=(--list "$LIST_FILE")
+            [ -n "$OUTPUT" ] && args+=(--output "$OUTPUT")
+            args+=(--engine "$ENGINE" --level "$LEVEL" --volume-size "$VOLUME_SIZE")
+            [ -n "$FORMAT" ] && args+=(--format "$FORMAT")
+            [ -n "$MANIFEST" ] && args+=(--manifest "$MANIFEST")
+            [ -n "$ROOT" ] && args+=(--root "$ROOT")
+            while IFS= read -r line; do [ -n "$line" ] && args+=(--include "$line"); done <<< "$INCLUDE"
+            while IFS= read -r line; do [ -n "$line" ] && args+=(--exclude "$line"); done <<< "$EXCLUDE"
+            [ "$VERIFY" = "true" ] && args+=(--verify)
+            [ "$FORCE" = "true" ] && args+=(--force)
+            [ "$UPDATE" = "true" ] && args+=(--update)
+            [ -n "$RETRIES" ] && args+=(--retries "$RETRIES")
+            [ "$ENCRYPT" = "true" ] && args+=(--encrypt)
+            [ -n "$SIGN_KEY" ] && args+=(--sign-key "$SIGN_KEY")
+            out_dir="${OUTPUT:-archives}"
+            ;;
+          unpack)
+            positional+=("$SOURCE")
+            [ -n "$OUTPUT" ] && args+=(--output "$OUTPUT")
+            [ "$FORCE" = "true" ] && args+=(--force)
+            [ "$UPDATE" = "true" ] && args+=(--update)
+            [ -n "$RETRIES" ] && args+=(--retries "$RETRIES")
+            [ -n "$PUBLIC_KEY" ] && args+=(--public-key "$PUBLIC_KEY")
+            out_dir="${OUTPUT:-restored}"
+            ;;
+          verify)
+            positional+=("$SOURCE")
+            [ -n "$AGAINST" ] && args+=(--against "$AGAINST")
+            [ -n "$PUBLIC_KEY" ] && args+=(--public-key "$PUBLIC_KEY")
+            out_dir=""
+            ;;
+        esac
+
+        result="$RUNNER_TEMP/batchvault-result.json"
+        set +e
+        batchvault "$COMMAND" "${args[@]}" -- "${positional[@]}" > "$result"
+        code=$?
+        set -e
+
+        status=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['status'])" "$result" 2>/dev/null || echo failed)
+        {
+          echo "status=$status"
+          echo "result-json=$result"
+          echo "output=$out_dir"
+        } >> "$GITHUB_OUTPUT"
+
+        python - "$result" "$COMMAND" >> "$GITHUB_STEP_SUMMARY" <<'PY' || true
+        import json, sys
+        data = json.load(open(sys.argv[1], encoding="utf-8"))
+        print(f"### BatchVault {sys.argv[2]}: {data['status']}\n")
+        print("| File | Status | Details |\n|---|---|---|")
+        for entry in data["entries"]:
+            name = entry["source"].replace("\\", "/").rsplit("/", 1)[-1]
+            message = entry["message"].replace("|", "\\|").replace("\n", " ")
+            print(f"| {name} | {entry['status']} | {message} |")
+        for warning in data.get("warnings", []):
+            print(f"\n> Warning: {warning}")
+        PY
+
+        if [ "$code" -ne 0 ] && [ "$FAIL_ON_ERROR" = "true" ]; then
+          echo "::error::BatchVault exited with code $code (status: $status)"
+          exit "$code"
+        fi
+
+    - name: Upload output
+      if: ${{ always() && inputs.upload-artifact == 'true' && steps.run.outputs.output != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.run.outputs.output }}
+        if-no-files-found: warn

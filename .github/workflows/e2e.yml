@@ -1,0 +1,338 @@
+name: End-to-end
+
+# Runs the real program the way users do: the command line and the built package
+# (tests/e2e), the GitHub Action (this repository's action.yml, used as "./"),
+# and the Docker images. Also run before every release (see release.yml).
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - src/**
+      - tests/e2e/**
+      - action.yml
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/e2e.yml
+  schedule:
+    - cron: "0 4 * * 1" # Mondays; catches changes in runners, pip and Docker
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cli-and-package:
+    name: CLI and package / ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    # Same matrix as tests.yml. Python 3.15 may still be a pre-release; don't
+    # let it block the build.
+    continue-on-error: ${{ matrix.python == '3.15' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: ubuntu-latest, python: "3.14" }
+          - { os: ubuntu-latest, python: "3.15" }
+          - { os: windows-latest, python: "3.11" }
+          - { os: macos-latest, python: "3.11" }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install
+        run: uv sync --python ${{ matrix.python }}
+
+      # No -n: the package tests build a wheel and virtual environments once.
+      - name: CLI and package tests
+        run: uv run pytest -m "e2e and not docker" -v
+
+  docker:
+    name: Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install
+        run: uv sync --python 3.11
+
+      - name: Docker tests (builds both images)
+        run: uv run pytest -m docker -v
+
+  action:
+    name: GitHub Action / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Only used by the steps below that create keys or edit files; the action
+      # installs its own copy.
+      - name: Install BatchVault for helper steps
+        run: python -m pip install --quiet ".[crypto]"
+
+      - name: Create test data
+        run: python tests/e2e/scripts/make_data.py data
+
+      # --- pack, verify, unpack -------------------------------------------
+      - name: Pack
+        id: pack
+        uses: ./
+        with:
+          files: |
+            data/report.bin
+            data/notes.txt
+            data/ünï cödé.txt
+            data/empty.dat
+            data/sub dir/nested file.csv
+          output: archives
+          engine: native
+          volume-size: 256k
+          verify: "true"
+
+      - name: Pack reported success and wrote a manifest
+        env:
+          STATUS: ${{ steps.pack.outputs.status }}
+          OUTPUT: ${{ steps.pack.outputs.output }}
+          RESULT: ${{ steps.pack.outputs.result-json }}
+        run: |
+          test "$STATUS" = success
+          test "$OUTPUT" = archives
+          test -f archives/manifest.json
+          test -s "$RESULT"
+          python -c "import json,sys; d=json.load(open(sys.argv[1], encoding='utf-8')); assert len(d['entries'])==5" "$RESULT"
+
+      - name: Verify against the originals
+        id: verify
+        uses: ./
+        with:
+          command: verify
+          source: archives
+          against: data
+
+      - name: Unpack
+        id: unpack
+        uses: ./
+        with:
+          command: unpack
+          source: archives
+          output: restored
+
+      - name: Restored files are identical
+        env:
+          VERIFY: ${{ steps.verify.outputs.status }}
+          UNPACK: ${{ steps.unpack.outputs.status }}
+        run: |
+          test "$VERIFY" = success
+          test "$UNPACK" = success
+          python tests/e2e/scripts/compare.py data restored
+
+      # --- incremental mode -----------------------------------------------
+      - name: Pack again with update (nothing changed)
+        id: update
+        uses: ./
+        with:
+          files: |
+            data/report.bin
+            data/notes.txt
+          output: archives
+          engine: native
+          volume-size: 256k
+          update: "true"
+          fail-on-error: "false"
+
+      - name: Nothing was re-archived
+        env:
+          STATUS: ${{ steps.update.outputs.status }}
+        run: test "$STATUS" = skipped
+
+      # --- artifact upload ------------------------------------------------
+      - name: Pack and upload as an artifact
+        uses: ./
+        with:
+          files: data/notes.txt
+          output: uploaded
+          engine: native
+          upload-artifact: "true"
+          artifact-name: e2e-archives-${{ matrix.os }}
+
+      - name: Download the artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-archives-${{ matrix.os }}
+          path: downloaded
+
+      - name: Artifact holds the archive
+        run: |
+          test -f downloaded/manifest.json
+          ls downloaded/notes.txt
+
+      # --- encryption -----------------------------------------------------
+      - name: Pack encrypted
+        uses: ./
+        with:
+          files: data/notes.txt
+          output: vault
+          engine: native
+          encrypt: "true"
+          password: e2e-throwaway-password
+
+      - name: Unpack with the wrong password
+        id: wrong
+        uses: ./
+        with:
+          command: unpack
+          source: vault
+          output: wrong-restore
+          password: not-the-password
+          fail-on-error: "false"
+
+      - name: Unpack with the right password
+        id: right
+        uses: ./
+        with:
+          command: unpack
+          source: vault
+          output: right-restore
+          password: e2e-throwaway-password
+
+      - name: Only the right password restores
+        env:
+          WRONG: ${{ steps.wrong.outputs.status }}
+          RIGHT: ${{ steps.right.outputs.status }}
+        run: |
+          test "$WRONG" = failed
+          test "$RIGHT" = success
+          test ! -e wrong-restore/notes.txt
+          python tests/e2e/scripts/compare.py data right-restore notes.txt
+
+      # --- signing --------------------------------------------------------
+      - name: Create keys
+        run: batchvault keygen --private signing.key --public signing.pub -q
+
+      - name: Pack with a signed manifest
+        uses: ./
+        with:
+          files: data/notes.txt
+          output: signed
+          engine: native
+          sign-key: signing.key
+
+      - name: Verify the signature
+        id: signed
+        uses: ./
+        with:
+          command: verify
+          source: signed
+          public-key: signing.pub
+
+      - name: Tamper with the manifest
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("signed/manifest.json")
+          path.write_text(path.read_text(encoding="utf-8").replace("notes.txt", "other.txt", 1), encoding="utf-8")
+          PY
+
+      - name: Verify the tampered manifest
+        id: tampered
+        uses: ./
+        with:
+          command: verify
+          source: signed
+          public-key: signing.pub
+          fail-on-error: "false"
+
+      - name: The signature check caught the change
+        env:
+          GOOD: ${{ steps.signed.outputs.status }}
+          BAD: ${{ steps.tampered.outputs.status }}
+        run: |
+          test "$GOOD" = success
+          test "$BAD" = failed
+
+      # --- failures -------------------------------------------------------
+      - name: Pack a file that does not exist
+        id: missing
+        continue-on-error: true
+        uses: ./
+        with:
+          files: data/does-not-exist.txt
+          output: nope
+
+      - name: Pack a missing file without failing the step
+        id: missing-quiet
+        uses: ./
+        with:
+          files: data/does-not-exist.txt
+          output: nope
+          fail-on-error: "false"
+
+      - name: Failures are reported
+        env:
+          OUTCOME: ${{ steps.missing.outcome }}
+          STATUS: ${{ steps.missing-quiet.outputs.status }}
+        run: |
+          test "$OUTCOME" = failure
+          test "$STATUS" = failed
+          test ! -e nope
+
+      # --- 7-Zip (only where the runner has it) ---------------------------
+      - name: Detect 7-Zip
+        id: sevenzip
+        run: |
+          if command -v 7zz >/dev/null || command -v 7z >/dev/null || [ -f "/c/Program Files/7-Zip/7z.exe" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pack with 7-Zip
+        if: steps.sevenzip.outputs.found == 'true'
+        id: sz-pack
+        uses: ./
+        with:
+          files: |
+            data/report.bin
+            data/notes.txt
+          output: sz-archives
+          engine: 7zip
+          volume-size: 256k
+          verify: "true"
+
+      - name: Unpack the 7-Zip archives
+        if: steps.sevenzip.outputs.found == 'true'
+        uses: ./
+        with:
+          command: unpack
+          source: sz-archives
+          output: sz-restored
+
+      - name: 7-Zip round trip is identical
+        if: steps.sevenzip.outputs.found == 'true'
+        run: python tests/e2e/scripts/compare.py data sz-restored report.bin notes.txt

@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "batchvault"
+version = "0.1.0"
+description = "Batch archive, compress, split and restore files with a native or 7-Zip engine."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11.4"
+dependencies = ["rich>=13", "pathspec>=0.12"]
+
+[project.optional-dependencies]
+# Encryption (native engine) and manifest signing.
+crypto = ["cryptography>=42"]
+
+[project.scripts]
+batchvault = "batchvault.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3",
+    "ruff>=0.6",
+    "pre-commit>=3",
+    "cryptography>=42",
+]
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/batchvault"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--strict-markers"
+markers = [
+    "integration: runs against a real 7-Zip (slower; excluded from pre-commit, run in CI)",
+    "e2e: end-to-end tests of the installed program (tests/e2e; run on demand and in CI)",
+    "package: e2e tests that build the wheel and install it into a fresh environment",
+    "docker: e2e tests that build and run the Docker images (need Docker)",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
