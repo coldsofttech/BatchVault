@@ -111,7 +111,7 @@ outputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -248,7 +248,7 @@ runs:
 
     - name: Upload output
       if: ${{ always() && inputs.upload-artifact == 'true' && steps.run.outputs.output != '' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ steps.run.outputs.output }}
