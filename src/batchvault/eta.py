@@ -21,13 +21,20 @@ class EtaEstimator:
     def __init__(self, clock=time.monotonic):
         self.clock = clock
         self.started_at = None
+        self.skipped = 0  # bytes finished before this run (a resumed run)
 
     def start(self):
         if self.started_at is None:
             self.started_at = self.clock()
 
+    def skip(self, size):
+        """Count work an earlier run did, so it does not inflate the speed."""
+        self.skipped += size
+
     def estimate(self, done_bytes, total_bytes):
         """Seconds remaining, or None while there is not enough data yet."""
+        done_bytes -= self.skipped
+        total_bytes -= self.skipped
         if self.started_at is None or done_bytes <= 0:
             return None
 

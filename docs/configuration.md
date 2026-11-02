@@ -60,6 +60,11 @@ readme = false        # --no-readme: skip BATCHVAULT-README.md
 update = true
 ```
 
+`resume = true` is also accepted under `[pack]` and `[unpack]`, but it makes every
+run a resume (an error when there is no journal), so it is better given on the
+command line. With `--resume`, settings from the file are ignored: the earlier
+run's own settings are used.
+
 Never put passwords in the file. Use `BATCHVAULT_PASSWORD`,
 `--password-file`, and `BATCHVAULT_KEY_PASSWORD` for an encrypted signing key.
 A notification URL often contains a secret; prefer `BATCHVAULT_NOTIFY_URL`.

@@ -36,6 +36,7 @@ PyPI instead.
 | `root` | pack | Advanced: store paths relative to this folder instead of the automatic choice (folders are kept either way) | automatic |
 | `force` | pack, unpack | Replace existing archives / files | `false` |
 | `update` | pack, unpack | Skip unchanged files | `false` |
+| `resume` | pack, unpack | Continue an interrupted run in the output folder. Every setting comes from the earlier run, so only `output`, `password`, `sign-key`, `public-key` and `seven-zip` are used and the other inputs are ignored | `false` |
 | `verify` | pack | Test each archive after creating it | `false` |
 | `retries` | pack, unpack | Retries after an I/O or engine error | `3` |
 | `manifest` | pack | Manifest location | |
@@ -124,6 +125,24 @@ Use the result in a later step:
 - if: steps.vault.outputs.status != 'success'
   run: echo "Archiving did not fully succeed: ${{ steps.vault.outputs.status }}"
 ```
+
+## Resuming after a timeout
+
+A run that was cut off (a job time limit, a cancelled workflow) can be continued
+if its output folder survived, for example because it is on a self-hosted runner,
+a cache or a mounted volume. Run the same step with `resume`:
+
+```yaml
+- uses: coldsofttech/BatchVault@v1
+  with:
+    command: pack
+    output: archives
+    resume: "true"
+    password: ${{ secrets.ARCHIVE_PASSWORD }}   # again, if the first run was encrypted
+```
+
+`unpack` works the same way with `command: unpack`, `output` and `resume`. With no
+journal in the output folder the step fails with a clear message.
 
 ## Notes
 

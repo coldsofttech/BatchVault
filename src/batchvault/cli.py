@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from batchvault import __version__, api, notify, signing
+from batchvault import resume as journals
 from batchvault.config import (
     defaults_for,
     find_config,
@@ -34,7 +35,7 @@ from batchvault.levels import AUTO, level_argument
 from batchvault.logs import LOG_LEVELS, close_logging, setup_logging
 from batchvault.manifest import Manifest
 from batchvault.models import RunResult, Status
-from batchvault.options import FORMATS
+from batchvault.options import FORMATS, format_size
 from batchvault.security import redact, redact_arguments
 
 log = logging.getLogger(__name__)
@@ -252,7 +253,13 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         action="store_true",
         help="Show what would be archived without writing anything.",
     )
-    pack.set_defaults(handler=cmd_pack)
+    pack.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue an interrupted run in the output folder. Every setting "
+        "comes from the earlier run, so give only -o (and a password or key).",
+    )
+    pack.set_defaults(handler=cmd_pack, command_parser=pack)
     _configure(pack, "pack", config)
 
     unpack = commands.add_parser(
@@ -263,7 +270,10 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         epilog="Example: batchvault unpack archives -o restored",
     )
     unpack.add_argument(
-        "source", metavar="SOURCE", help="Manifest, folder, volume or list file."
+        "source",
+        nargs="?",
+        metavar="SOURCE",
+        help="Manifest, folder, volume or list file (not needed with --resume).",
     )
     unpack.add_argument("-o", "--output", default="restored", help="Output folder.")
     unpack.add_argument(
@@ -280,7 +290,13 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         help="Refuse an archive that would expand beyond this size, per file "
         "(e.g. 50g). Use it when restoring archives you do not trust.",
     )
-    unpack.set_defaults(handler=cmd_unpack)
+    unpack.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue an interrupted run into the output folder, using the "
+        "source of the earlier run (give only -o).",
+    )
+    unpack.set_defaults(handler=cmd_unpack, command_parser=unpack)
     _configure(unpack, "unpack", config)
 
     verify = commands.add_parser(
@@ -498,29 +514,106 @@ def _describe_sources(args) -> str:
     return ", ".join(parts) or "-"
 
 
+# Options whose values come from the earlier run when resuming. Passing any of
+# them with --resume is refused rather than ignored or allowed to mix outputs.
+PACK_RESUME_FIXED: dict[str, tuple[str, ...]] = {
+    "list": ("--list",),
+    "engine": ("--engine",),
+    "format": ("--format",),
+    "level": ("--level",),
+    "volume_size": ("--volume-size",),
+    "include": ("--include",),
+    "exclude": ("--exclude",),
+    "root": ("--root",),
+    "manifest": ("--manifest",),
+    "force": ("--force",),
+    "update": ("--update",),
+    "verify": ("--verify",),
+    "encrypt": ("--encrypt",),
+    "delete_source": ("--delete-source",),
+    "allow_archives": ("--allow-archives",),
+    "strict": ("--strict",),
+    "dry_run": ("--dry-run",),
+    "readme": ("--no-readme",),
+}
+UNPACK_RESUME_FIXED: dict[str, tuple[str, ...]] = {
+    "force": ("--force",),
+    "update": ("--update",),
+}
+
+
+def _given(args, dest: str, names: tuple[str, ...]) -> bool:
+    """True if the user passed an option: on the command line or with a new value.
+
+    A value from the settings file is the parser's default, so it never counts.
+    """
+    if getattr(args, dest, None) != args.command_parser.get_default(dest):
+        return True
+    for token in args.argv:
+        for name in names:
+            if token == name or token.startswith(name + "="):
+                return True
+            if not name.startswith("--") and token.startswith(name):
+                return True
+    return False
+
+
+def _reject_given(args, fixed: dict[str, tuple[str, ...]], extra: list[str]) -> None:
+    clashing = extra + [
+        names[0] for dest, names in fixed.items() if _given(args, dest, names)
+    ]
+    if clashing:
+        raise InputError(
+            "--resume continues the earlier run with its own settings, so do not "
+            f"also pass: {', '.join(clashing)}. Remove them, or run without "
+            "--resume to start again."
+        )
+
+
 def cmd_pack(args) -> int:
     from batchvault import ui
 
     _check_output_flags(args)
-    if not args.files and not args.list:
+
+    saved = None
+    if args.resume:
+        _reject_given(args, PACK_RESUME_FIXED, ["FILE"] if args.files else [])
+        saved, _, _ = journals.load_pack(
+            Path(args.output).expanduser().resolve() / journals.PACK_JOURNAL
+        )
+    elif not args.files and not args.list:
         raise InputError("Give at least one FILE or use --list.")
 
+    jobs, retries = args.jobs, args.retries
+    if saved is not None:  # the earlier run's values unless given again
+        jobs = jobs if _given(args, "jobs", ("--jobs", "-j")) else saved.jobs
+        retries = retries if _given(args, "retries", ("--retries",)) else saved.retries
+
     password = None
-    if args.encrypt:
+    if args.encrypt or (saved is not None and saved.encrypted):
         password = _read_password(args)
         if not password:
             raise InputError(
-                f"--encrypt needs a password: set {ENV_PASSWORD} "
-                "or use --password-file."
+                ("The earlier run was encrypted: " if saved else "--encrypt: ")
+                + f"set {ENV_PASSWORD} or use --password-file."
             )
     url = _notify_url(args)
 
     out, err = _consoles()
     if not (args.quiet or args.json or args.json_events):
-        ui.print_run_info(
-            out,
-            "BatchVault pack",
-            [
+        if saved is not None:
+            rows = [
+                ("Resuming", "the earlier run in this folder (its settings are kept)"),
+                ("Engine", saved.engine),
+                ("Format", saved.format or "xz (native engine)"),
+                ("Level", _describe_level(saved.level)),
+                ("Volume size", format_size(saved.volume_size)),
+                ("Jobs", str(jobs) if jobs else "0 (sequential)"),
+                ("Source files", f"{len(saved.sources)} from the earlier run"),
+                ("Archives folder", str(Path(args.output).resolve())),
+            ]
+        else:
+            rows = [
                 ("Engine", args.engine),
                 ("Format", args.format or "xz (native engine)"),
                 ("Level", _describe_level(args.level)),
@@ -534,8 +627,24 @@ def cmd_pack(args) -> int:
                     else "kept",
                 ),
                 ("Archives folder", str(Path(args.output).resolve())),
-            ],
-        )
+            ]
+        ui.print_run_info(out, "BatchVault pack", rows)
+
+    if args.resume:
+        with _progress(args, "Archiving", err) as progress:
+            result = api.pack(
+                output=args.output,
+                resume=True,
+                seven_zip=args.seven_zip,
+                jobs=jobs,
+                retries=retries,
+                password=password,
+                sign_key=args.sign_key,
+                sign_key_password=os.environ.get(ENV_KEY_PASSWORD) or None,
+                confirm=_confirm_deletion(args, progress),
+                progress=progress,
+            )
+        return _finish(args, "pack", result, None, progress, url)
 
     with _progress(args, "Archiving", err) as progress:
         result = api.pack(
@@ -580,6 +689,10 @@ def cmd_unpack(args) -> int:
     from batchvault import ui
 
     _check_output_flags(args)
+    if args.resume:
+        _reject_given(args, UNPACK_RESUME_FIXED, ["SOURCE"] if args.source else [])
+    elif not args.source:
+        raise InputError("Give SOURCE, or use --resume to continue an earlier run.")
     password = _read_password(args)
     url = _notify_url(args)
 
@@ -589,7 +702,12 @@ def cmd_unpack(args) -> int:
             out,
             "BatchVault unpack",
             [
-                ("Archives", args.source),
+                (
+                    "Archives",
+                    "from the earlier run in the output folder (resuming)"
+                    if args.resume
+                    else args.source,
+                ),
                 ("Restore files to", str(Path(args.output).resolve())),
                 ("Existing files", "overwrite" if args.force else "skip"),
                 ("Jobs", str(args.jobs) if args.jobs else "0 (sequential)"),
@@ -607,6 +725,7 @@ def cmd_unpack(args) -> int:
             public_key=args.public_key,
             retries=args.retries,
             max_output_size=args.max_output_size,
+            resume=args.resume,
             progress=progress,
         )
     return _finish(args, "unpack", result, None, progress, url)
@@ -789,6 +908,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     args = parser.parse_args(argv)
+    args.argv = argv
 
     log_path = None
     if not args.no_log:
