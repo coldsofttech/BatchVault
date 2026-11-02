@@ -738,9 +738,7 @@ def cmd_doctor(args) -> int:
     checks = run_checks(args.seven_zip)
     if args.json:
         print(
-            json.dumps(
-                [vars(check) for check in checks], indent=2, ensure_ascii=False
-            )
+            json.dumps([vars(check) for check in checks], indent=2, ensure_ascii=False)
         )
     elif not args.quiet:
         ui.print_checks(Console(), checks)

@@ -85,9 +85,7 @@ def _volume_target(volume: Path, load: Loader = Manifest.load) -> Target:
     return Target(volume)
 
 
-def resolve_targets(
-    source: str | Path, load: Loader = Manifest.load
-) -> list[Target]:
+def resolve_targets(source: str | Path, load: Loader = Manifest.load) -> list[Target]:
     """Archives referred to by a manifest, folder, volume file or list file.
 
     Every manifest is read through ``load``, so a caller can verify a manifest's

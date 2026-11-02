@@ -33,8 +33,24 @@ def make(tmp_path, name, content=b"plain bytes\n" * 100):
 
 @pytest.mark.parametrize(
     "name",
-    ["a.mp4", "a.MKV", "a.jpg", "a.png", "a.zip", "a.7z", "a.gz", "a.docx", "a.mp3",
-     "a.flac", "a.webp", "a.heic", "a.tar.gz", "a.xlsx", "a.cr2", "a.webm"],
+    [
+        "a.mp4",
+        "a.MKV",
+        "a.jpg",
+        "a.png",
+        "a.zip",
+        "a.7z",
+        "a.gz",
+        "a.docx",
+        "a.mp3",
+        "a.flac",
+        "a.webp",
+        "a.heic",
+        "a.tar.gz",
+        "a.xlsx",
+        "a.cr2",
+        "a.webm",
+    ],
 )
 def test_already_compressed_files_get_level_zero(tmp_path, name):
     choice = choose_level(make(tmp_path, name))
@@ -42,8 +58,20 @@ def test_already_compressed_files_get_level_zero(tmp_path, name):
 
 
 @pytest.mark.parametrize(
-    "name", ["a.txt", "a.LOG", "a.csv", "a.json", "a.xml", "a.py", "a.sql", "a.md",
-             "a.html", "a.yaml", "a.svg"],
+    "name",
+    [
+        "a.txt",
+        "a.LOG",
+        "a.csv",
+        "a.json",
+        "a.xml",
+        "a.py",
+        "a.sql",
+        "a.md",
+        "a.html",
+        "a.yaml",
+        "a.svg",
+    ],
 )
 def test_text_gets_a_strong_level(tmp_path, name):
     choice = choose_level(make(tmp_path, name))
@@ -261,6 +289,6 @@ def test_config_can_set_auto_and_rejects_nonsense(tmp_path, mixed):
     assert entry["entries"][0]["level"] == 0
 
     for bad in ('"fast"', "12", "-1"):
-        config.write_text(f'[pack]\nlevel = {bad}\n')
+        config.write_text(f"[pack]\nlevel = {bad}\n")
         assert run("pack", source, "-o", str(tmp_path / "b"), "-q",
                    "--config", str(config)) == 2  # fmt: skip

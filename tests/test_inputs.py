@@ -64,10 +64,12 @@ def test_colliding_places_are_still_refused(tmp_path):
     # Two lists recorded different roots, so both files would be stored as x/same.txt.
     listing = tmp_path / "list.json"
     listing.write_text(
-        json.dumps([
-            {"path": str(tmp_path / "a/x/same.txt"), "root": str(tmp_path / "a")},
-            {"path": str(tmp_path / "b/x/same.txt"), "root": str(tmp_path / "b")},
-        ]),
+        json.dumps(
+            [
+                {"path": str(tmp_path / "a/x/same.txt"), "root": str(tmp_path / "a")},
+                {"path": str(tmp_path / "b/x/same.txt"), "root": str(tmp_path / "b")},
+            ]
+        ),
         encoding="utf-8",
     )
     with pytest.raises(InputError, match="same archive folder"):

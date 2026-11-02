@@ -266,9 +266,7 @@ def pack(
     with ThreadPoolExecutor(max_workers=workers) as executor:
         outcomes = list(executor.map(work, sources))
 
-    result = RunResult(
-        warnings=warnings, manifest=manifest_path, engine=backend.name
-    )
+    result = RunResult(warnings=warnings, manifest=manifest_path, engine=backend.name)
     for file_result, entry in outcomes:
         result.entries.append(file_result)
         if entry:
@@ -756,8 +754,10 @@ def _nfc(name: str) -> str:
 
 
 def _matches(path: Path, entry: ManifestEntry) -> bool:
-    return path.is_file() and path.stat().st_size == entry.size and (
-        hash_file(path) == entry.sha256
+    return (
+        path.is_file()
+        and path.stat().st_size == entry.size
+        and (hash_file(path) == entry.sha256)
     )
 
 

@@ -162,8 +162,22 @@ def _member(name, kind=tarfile.REGTYPE):
 
 @pytest.mark.parametrize(
     "name",
-    ["C:foo", "file.txt:stream", "NUL", "con.txt", "Aux", "COM1", "lpt9.log",
-     "name.", "name ", 'a"b', "a<b", "a|b", "a?b", "a*b"],
+    [
+        "C:foo",
+        "file.txt:stream",
+        "NUL",
+        "con.txt",
+        "Aux",
+        "COM1",
+        "lpt9.log",
+        "name.",
+        "name ",
+        'a"b',
+        "a<b",
+        "a|b",
+        "a?b",
+        "a*b",
+    ],
 )
 def test_windows_unsafe_names_are_rejected_for_windows(name):
     with pytest.raises(EngineError, match="unsafe"):
@@ -192,8 +206,16 @@ def test_structural_tricks_are_rejected_on_every_platform(name):
             _check_member(_member(name), windows=windows)
 
 
-@pytest.mark.parametrize("kind", [tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.DIRTYPE,
-                                  tarfile.CHRTYPE, tarfile.FIFOTYPE])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        tarfile.SYMTYPE,
+        tarfile.LNKTYPE,
+        tarfile.DIRTYPE,
+        tarfile.CHRTYPE,
+        tarfile.FIFOTYPE,
+    ],
+)
 def test_only_regular_files_are_accepted(kind):
     with pytest.raises(EngineError):
         _check_member(_member("name", kind), windows=False)

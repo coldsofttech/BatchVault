@@ -131,7 +131,7 @@ def test_error_explains_how_to_trust_the_file(tmp_path, monkeypatch, capsys):
 
 def test_pyproject_section_is_restricted_too(tmp_path, monkeypatch):
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.batchvault.pack]\ndelete-source = true\n'
+        "[tool.batchvault.pack]\ndelete-source = true\n"
     )
     monkeypatch.chdir(tmp_path)
     assert run("doctor", "-q") == 2

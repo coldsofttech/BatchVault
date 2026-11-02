@@ -152,8 +152,7 @@ def defaults_for(config: dict, command: str, actions: dict) -> dict:
             dest = mapping.get(key)
             if dest is None:
                 raise ConfigError(
-                    f"Unknown key '{key}' in [{section}]. "
-                    f"Known: {', '.join(mapping)}."
+                    f"Unknown key '{key}' in [{section}]. Known: {', '.join(mapping)}."
                 )
             if dest in actions:
                 _check_value(dest, value, actions[dest], f"[{section}]")

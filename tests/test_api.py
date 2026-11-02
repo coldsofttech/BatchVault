@@ -90,9 +90,9 @@ def test_unpack_sources(tmp_path, media, how):
 
     result = bv.unpack(source, tmp_path / "restored")
     assert result.status == Status.SUCCESS
-    assert (tmp_path / "restored" / "notes.txt").read_text(
-        encoding="utf-8"
-    ) == (media / "notes.txt").read_text(encoding="utf-8")
+    assert (tmp_path / "restored" / "notes.txt").read_text(encoding="utf-8") == (
+        media / "notes.txt"
+    ).read_text(encoding="utf-8")
     assert not [p for p in (tmp_path / "restored").iterdir() if p.name.startswith(".")]
 
 
