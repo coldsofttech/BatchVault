@@ -23,6 +23,7 @@ dev = [
     "pytest>=8",
     "pytest-xdist>=3",
     "ruff>=0.6",
+    "mypy>=1.10",
     "pre-commit>=3",
     "cryptography>=42",
 ]
@@ -43,6 +44,10 @@ markers = [
     "package: e2e tests that build the wheel and install it into a fresh environment",
     "docker: e2e tests that build and run the Docker images (need Docker)",
 ]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.11"
 
 [tool.ruff]
 line-length = 88

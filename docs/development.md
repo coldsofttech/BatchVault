@@ -15,6 +15,7 @@ uv run pytest -m integration                             # needs 7-Zip
 uv run pytest -m "e2e and not docker"                    # CLI and package, end to end
 uv run pytest -m docker                                  # needs Docker
 uv run ruff check .                                      # lint
+uv run mypy                                              # type check
 ```
 
 See [testing.md](testing.md) for what each layer covers and when CI runs it.
