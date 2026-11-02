@@ -13,6 +13,7 @@ uv run pre-commit install
 
 ```
 uv run ruff check .
+uv run mypy
 uv run pytest -m "not integration and not e2e" -n auto
 uv run pytest -m integration        # needs 7-Zip installed; skipped otherwise
 uv run pytest -m "e2e and not docker"   # optional: end-to-end CLI and package tests
