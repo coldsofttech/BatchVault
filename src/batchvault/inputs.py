@@ -9,6 +9,7 @@ from pathlib import Path
 from batchvault.errors import InputError
 from batchvault.filters import PathFilter
 from batchvault.manifest import MANIFEST_NAME
+from batchvault.readme import README_NAME
 from batchvault.volumes import split_volume_name
 
 # A text list written by ``list files`` starts with this comment. It records the
@@ -134,7 +135,10 @@ def assign_folders(
 
 
 def looks_like_archive(path: Path) -> bool:
-    return split_volume_name(path.name) is not None or path.name == MANIFEST_NAME
+    return split_volume_name(path.name) is not None or path.name in (
+        MANIFEST_NAME,
+        README_NAME,
+    )
 
 
 def gather_sources(

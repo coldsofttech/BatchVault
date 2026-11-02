@@ -54,6 +54,7 @@ include = ["*.mp4"]
 exclude = ["tmp/"]
 update = true
 retries = 2
+readme = false        # --no-readme: skip BATCHVAULT-README.md
 
 [unpack]
 update = true
