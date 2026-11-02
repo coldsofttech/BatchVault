@@ -46,7 +46,9 @@ def engine_for_volume(volume: Path, seven_zip: str | Path | None = None) -> Engi
     return NativeEngine()
 
 
-def option_warnings(engine: Engine, format_given: str | None, level: int) -> list[str]:
+def option_warnings(
+    engine: Engine, format_given: str | None, level: int | str
+) -> list[str]:
     """Settings the chosen engine cannot honour exactly."""
     warnings = []
     if engine.name == "7zip" and format_given not in (None, "xz"):

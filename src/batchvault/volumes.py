@@ -7,6 +7,7 @@ import shutil
 import time
 import unicodedata
 from pathlib import Path
+from typing import BinaryIO
 
 from batchvault.errors import VolumeError
 from batchvault.security import restrict_permissions
@@ -55,7 +56,11 @@ def find_volumes(path: Path) -> list[Path]:
         raise VolumeError(f"Not an archive volume: {path}")
 
     volumes = existing_volumes(path.parent, parsed[0])
-    numbers = [split_volume_name(volume.name)[1] for volume in volumes]
+    numbers = []
+    for volume in volumes:
+        info = split_volume_name(volume.name)
+        if info:
+            numbers.append(info[1])
 
     missing = sorted(set(range(1, max(numbers) + 1)) - set(numbers))
     if missing:
@@ -122,7 +127,7 @@ class VolumeWriter:
         self._directory = directory
         self._base = base
         self._volume_size = volume_size
-        self._file = None
+        self._file: BinaryIO | None = None
         self._room = 0
         self.volumes: list[Path] = []
 
@@ -134,6 +139,7 @@ class VolumeWriter:
             if self._room == 0:
                 self._next_volume()
             chunk = view[: self._room]
+            assert self._file is not None  # opened by _next_volume
             self._file.write(chunk)
             self._room -= len(chunk)
             view = view[len(chunk) :]

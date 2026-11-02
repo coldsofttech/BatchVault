@@ -25,7 +25,8 @@ class Target:
     def name(self) -> str:
         if self.entry:
             return self.entry.name
-        base = split_volume_name(self.volume.name)[0]
+        parsed = split_volume_name(self.volume.name)
+        base = parsed[0] if parsed else self.volume.name
         return base.rsplit(".", 1)[0]
 
 

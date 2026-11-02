@@ -229,7 +229,7 @@ def pack(
 
     workers, per_file_jobs = _split_jobs(jobs, len(sources))
     options = PackOptions(
-        level=5 if auto_level else level,
+        level=level if isinstance(level, int) else 5,
         volume_size=parse_size(volume_size),
         jobs=per_file_jobs,
         force=force,
@@ -702,7 +702,7 @@ def _restore_one(
         if entry:
             if entry.encrypted and not password:
                 return FileResult(volume, Status.FAILED, ENCRYPTED_MESSAGE)
-            problems = entry.check_volumes(target.base_dir)
+            problems = entry.check_volumes(target.base_dir or volume.parent)
             if problems:
                 return FileResult(volume, Status.FAILED, "; ".join(problems))
 
@@ -828,7 +828,7 @@ def _verify_one(
         if entry:
             if entry.encrypted and not password:
                 return FileResult(volume, Status.FAILED, ENCRYPTED_MESSAGE)
-            problems = entry.check_volumes(target.base_dir)
+            problems = entry.check_volumes(target.base_dir or volume.parent)
             if problems:
                 return FileResult(volume, Status.FAILED, "; ".join(problems))
 
@@ -874,7 +874,8 @@ def inspect(source: str | Path) -> list[InspectEntry]:
             )
             continue
 
-        paths = [target.base_dir / volume.file for volume in entry.volumes]
+        base_dir = target.base_dir or target.volume.parent
+        paths = [base_dir / volume.file for volume in entry.volumes]
         found.append(
             InspectEntry(
                 name=entry.name,
