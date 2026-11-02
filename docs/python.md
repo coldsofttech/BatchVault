@@ -69,6 +69,9 @@ bv.pack(
   source that does not match, raises `ResumeError`. Finished, unchanged files
   whose volumes still match their checksums are reused
   (`FileResult.resumed`); the rest are done again (`FileResult.redone` says why).
+  A file that was interrupted part-way continues from its last checkpoint instead
+  of starting over (`FileResult.continued` is the number of source bytes already
+  done; the built-in engine only).
 - `delete_source=True` deletes each original after a restore-and-compare proves
   the archive. `confirm(paths) -> bool`, if given, is asked first; with no
   `confirm`, deletion is automatic once the check passes.

@@ -36,6 +36,7 @@ class FileResult:
     level: int | None = None  # compression level used (pack)
     resumed: bool = False  # finished by an earlier run and reused (--resume)
     redone: str = ""  # why a file from an earlier run was done again (--resume)
+    continued: int = 0  # source bytes an earlier attempt had finished (--resume)
 
     def to_dict(self) -> dict:
         return {
@@ -53,6 +54,7 @@ class FileResult:
             "warnings": self.warnings,
             "resumed": self.resumed,
             "redone": self.redone or None,
+            "continued": self.continued or None,
         }
 
 
@@ -134,6 +136,7 @@ class ProgressEvent:
     status: Status | None = None
     count: int = 0
     resumed: bool = False  # a ``finish`` for a file reused from an earlier run
+    skipped_size: int = 0  # bytes of the file an earlier attempt had already done
 
     def to_dict(self) -> dict:
         return {
@@ -143,6 +146,7 @@ class ProgressEvent:
             "status": self.status.value if self.status else None,
             "count": self.count,
             "resumed": self.resumed,
+            "skipped_size": self.skipped_size,
         }
 
 

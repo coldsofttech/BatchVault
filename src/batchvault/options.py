@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from batchvault.errors import OptionsError
 
@@ -57,6 +58,9 @@ class PackOptions:
     force: bool = False
     format: str = "xz"
     password: str | None = field(default=None, repr=False)
+    # Where the native engine reports finished volumes and checkpoints so an
+    # interrupted file can be resumed (a ``FileCheckpoints``); None for no resume.
+    checkpoints: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         if self.format not in FORMATS:

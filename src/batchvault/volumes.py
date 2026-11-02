@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import re
 import shutil
 import time
 import unicodedata
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from batchvault.errors import VolumeError
 from batchvault.security import restrict_permissions
@@ -120,47 +123,110 @@ def install_volumes(built: list[Path], dest_dir: Path, existing: list[Path]):
     return installed
 
 
-class VolumeWriter:
-    """Write-only file object that rolls over to a new volume every N bytes."""
+@dataclass
+class Adopted:
+    """Volumes already on disk that a resumed ``VolumeWriter`` carries on from."""
 
-    def __init__(self, directory: Path, base: str, volume_size: int):
+    complete: list[Path]  # full volumes, in order
+    partial: Path | None = None  # the volume that was being written, if any
+    partial_hash: Any = None  # SHA-256 state of its first ``partial_size`` bytes
+    partial_size: int = 0
+
+
+class VolumeWriter:
+    """Write-only file object that rolls over to a new volume every N bytes.
+
+    Each volume is hashed as it is written. When one is full it is flushed to disk
+    and ``on_volume(index, size, sha256)`` is called, so a resume can trust it.
+    ``position`` is the total number of bytes written, and ``sync_state`` makes
+    the volume being written durable and reports how far it got.
+    """
+
+    def __init__(
+        self,
+        directory: Path,
+        base: str,
+        volume_size: int,
+        *,
+        on_volume: Callable[[int, int, str], None] | None = None,
+        adopt: Adopted | None = None,
+    ):
         self._directory = directory
         self._base = base
         self._volume_size = volume_size
+        self._on_volume = on_volume
         self._file: BinaryIO | None = None
         self._room = 0
+        self._hash = hashlib.sha256()
+        self.position = 0
         self.volumes: list[Path] = []
+
+        if adopt is not None:
+            self.volumes = list(adopt.complete)
+            self.position = len(adopt.complete) * volume_size
+            if adopt.partial is not None:
+                self._file = adopt.partial.open("r+b")
+                self._file.seek(adopt.partial_size)
+                self._room = volume_size - adopt.partial_size
+                self._hash = adopt.partial_hash
+                self.volumes.append(adopt.partial)
+                self.position += adopt.partial_size
 
     def write(self, data) -> int:
         view = memoryview(data)
         total = len(view)
 
         while len(view):
-            if self._room == 0:
+            if self._file is None:
                 self._next_volume()
-            chunk = view[: self._room]
             assert self._file is not None  # opened by _next_volume
+            chunk = view[: self._room]
             self._file.write(chunk)
+            self._hash.update(chunk)
             self._room -= len(chunk)
+            self.position += len(chunk)
             view = view[len(chunk) :]
+            if self._room == 0:
+                self._finish_volume()
 
         return total
 
     def _next_volume(self) -> None:
-        self._close_current()
         number = len(self.volumes) + 1
         path = self._directory / f"{self._base}.{number:03d}"
         self._file = path.open("wb")
         self.volumes.append(path)
         self._room = self._volume_size
+        self._hash = hashlib.sha256()
 
-    def _close_current(self) -> None:
+    def _finish_volume(self) -> None:
+        """A volume is full: make it durable, close it and report its checksum."""
+        assert self._file is not None
+        self._file.flush()
+        os.fsync(self._file.fileno())
+        self._file.close()
+        self._file = None
+        if self._on_volume is not None:
+            self._on_volume(
+                len(self.volumes), self._volume_size, self._hash.hexdigest()
+            )
+
+    def sync_state(self) -> tuple[int, str]:
+        """Flush the open volume to disk; return ``(position, prefix_sha256)``.
+
+        The prefix hash covers the bytes already written to the volume being
+        filled (empty when no volume is open, i.e. we are on a volume boundary).
+        """
+        if self._file is None:
+            return self.position, ""
+        self._file.flush()
+        os.fsync(self._file.fileno())
+        return self.position, self._hash.hexdigest()
+
+    def close(self) -> None:
         if self._file is not None:
             self._file.close()
             self._file = None
-
-    def close(self) -> None:
-        self._close_current()
 
     def __enter__(self):
         return self

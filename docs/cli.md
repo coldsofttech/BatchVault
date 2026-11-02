@@ -154,9 +154,29 @@ Starting a run without `--resume` replaces any old journal in that folder.
   in an uninterrupted run, from the reused and the new files together. The journal
   is removed when no file failed; if one did, it stays so a later `--resume`
   retries only that file.
-- A file is either complete or absent: volumes are built in a staging folder and
-  moved into place only when finished. Resume continues file by file; a file that
-  was in progress is made again from the start.
+- **Inside a file.** A file is built in a staging folder (`.batchvault-resume-...`
+  in that file's archive folder) and moved into place only when finished, so a
+  finished archive is always complete. While it is built, every finished volume
+  and, after each compressed block, a checkpoint (how far the output got and the
+  hash of the volume being written) are recorded in the journal, after the data is
+  flushed to disk. `--resume` continues from the newest checkpoint whose data still
+  matches its hashes: complete volumes are checked against their SHA-256, the
+  partial volume's written part against its hash, anything written after the
+  checkpoint is cut off, and the rest is built on. The blocks already done are not
+  compressed again. Damaged, missing or truncated staged data is never trusted:
+  the next older checkpoint is tried, and failing that the file starts over. Also
+  restarted from the beginning: a source that changed (size or modification time).
+- With encryption the archive's header (salt and nonce prefix) is read back from
+  the staged data, so the file continues with the same key and block numbering.
+  The password must be the one the file was started with; another one is refused.
+- A retry after an I/O error during a run (`--retries`) continues from the last
+  checkpoint in the same way.
+- The staging folder stays after an interruption or failure and is removed when
+  the file finishes; one that is abandoned is removed by a later run after 24
+  hours. It sits in the output folder, beside the final volumes, so the last step
+  is an atomic rename on the same disk.
+- The 7-Zip engine writes its own volumes, which BatchVault cannot continue, so
+  with it resume works file by file: a file that was in progress starts again.
 - All source files must still exist. One that has gone is reported as failed.
 - `--delete-source` still deletes an original only after the archive is restored
   and compared byte for byte (and confirmed), whether the archive was reused or
@@ -182,7 +202,8 @@ Starting a run without `--resume` replaces any old journal in that folder.
 `--resume` cannot be combined with `--force`, `--update` or `--dry-run`. In
 progress output and `--json`, reused files count as done (the bar and ETA do not
 treat them as new speed), and the result lists how many were reused and redone
-(`"resume": {"reused": 3, "redone": 1}`).
+(`"resume": {"reused": 3, "redone": 1}`). A file continued inside shows
+`continued from 68% (41 volumes kept)` and a `continued` byte count in `--json`.
 
 ### The README inside the archive
 

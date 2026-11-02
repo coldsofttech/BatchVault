@@ -16,6 +16,7 @@ from pathlib import Path
 
 from batchvault import resume as journals
 from batchvault import signing
+from batchvault.checkpoint import FileCheckpoints
 from batchvault.crypto import require_cryptography
 from batchvault.engines.base import Engine
 from batchvault.engines.registry import engine_for_volume, get_engine, option_warnings
@@ -223,6 +224,7 @@ def pack(
 
     saved = None
     journaled: dict[str, ManifestEntry] = {}
+    partials: dict[str, journals.Partial] = {}
     loaded = None
     if resume:
         _reject_resume_conflicts(
@@ -236,7 +238,9 @@ def pack(
                 readme=readme,
             ),
         )  # fmt: skip
-        saved, journaled, loaded = journals.load_pack(out_root / journals.PACK_JOURNAL)
+        state = journals.load_pack(out_root / journals.PACK_JOURNAL)
+        saved, journaled, loaded = state.settings, state.finished, state.loaded
+        partials = state.partial
         engine, format, level = saved.engine, saved.format, saved.level
         volume_size, include, exclude = (
             saved.volume_size,
@@ -362,7 +366,7 @@ def pack(
         outcome, entry = _pack_one(
             backend, source, folder, out_root, manifest_path.parent,
             options, verify, progress, known if update else None, retries,
-            auto_level, journaled.get(key), resume,
+            auto_level, journaled.get(key), resume, journal, partials.get(key),
         )  # fmt: skip
         if entry is not None and not outcome.resumed:
             journal.append({"kind": "file", "key": key, "entry": entry.to_dict()})
@@ -622,6 +626,8 @@ def _pack_one(
     auto_level: bool = False,
     journaled: ManifestEntry | None = None,
     resume: bool = False,
+    journal: journals.Journal | None = None,
+    partial: journals.Partial | None = None,
 ) -> tuple[FileResult, ManifestEntry | None]:
     stat = source.stat()
     size = stat.st_size
@@ -662,6 +668,15 @@ def _pack_one(
             file_options = options
             if known is not None or resume:
                 file_options = dataclasses.replace(options, force=True)
+            # Let the engine report volumes and checkpoints to the journal, so an
+            # interruption (or a retry below) continues inside this file.
+            checkpoints = (
+                FileCheckpoints(key, journal, partial) if journal is not None else None
+            )
+            if checkpoints is not None:
+                file_options = dataclasses.replace(
+                    file_options, checkpoints=checkpoints
+                )
 
             destination = _folder_path(out_root, folder) / source.name
             volumes = _retry(
@@ -702,6 +717,13 @@ def _pack_one(
                 stored_size=stored,
                 level=options.level,
             )
+            if checkpoints is not None and checkpoints.continued_bytes:
+                outcome.continued = checkpoints.continued_bytes
+                share = checkpoints.continued_bytes / size if size else 1
+                outcome.message += (
+                    f"; continued from {share:.0%} "
+                    f"({checkpoints.kept_volumes} volumes kept)"
+                )
             if redone:
                 outcome.redone = redone
                 outcome.message += f"; redone: {redone}"
@@ -715,7 +737,14 @@ def _pack_one(
     _log_result("pack", outcome)
     _notify(
         progress,
-        ProgressEvent("finish", source, size, outcome.status, resumed=outcome.resumed),
+        ProgressEvent(
+            "finish",
+            source,
+            size,
+            outcome.status,
+            resumed=outcome.resumed,
+            skipped_size=size if outcome.resumed else outcome.continued,
+        ),
     )
     return outcome, entry
 
@@ -944,7 +973,12 @@ def unpack(
         _notify(
             progress,
             ProgressEvent(
-                "finish", target.volume, size, outcome.status, resumed=outcome.resumed
+                "finish",
+                target.volume,
+                size,
+                outcome.status,
+                resumed=outcome.resumed,
+                skipped_size=size if outcome.resumed else 0,
             ),
         )
         return outcome

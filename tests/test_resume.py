@@ -77,7 +77,8 @@ def test_interrupted_pack_leaves_a_journal(tmp_path, media):
     lines = journal_lines(output / PACK_JOURNAL)
     assert lines[0]["kind"] == "header"
     assert lines[0]["settings"]["volume_size"] == 2048
-    assert [line["key"] for line in lines[1:]] == ["a.bin"]
+    finished = [line["key"] for line in lines[1:] if line["kind"] == "file"]
+    assert finished == ["a.bin"]
     assert not (output / "manifest.json").exists()
 
 

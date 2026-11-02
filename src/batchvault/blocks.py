@@ -11,6 +11,7 @@ from __future__ import annotations
 import bz2
 import gzip
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from batchvault import crypto
@@ -107,6 +108,10 @@ class BlockWriter:
         jobs: int,
         cipher=None,
         header: bytes = b"",
+        *,
+        start_block: int = 0,
+        write_header: bool = True,
+        on_block: Callable[[int], None] | None = None,
     ):
         self._sink = sink
         self._fmt = fmt
@@ -118,8 +123,13 @@ class BlockWriter:
         self._executor = ThreadPoolExecutor(max_workers=jobs) if jobs else None
         self._pending: deque[Future[bytes]] = deque()
         self._buffer = bytearray()
-        self._count = 0
-        if cipher:
+        # Blocks are numbered from ``start_block`` when a run is resumed; the
+        # nonce of each encrypted record is its number, so numbering must continue.
+        self._count = start_block
+        self._written = start_block
+        self._on_block = on_block
+        self._final: int | None = None  # the last, partial block: no checkpoint
+        if cipher and write_header:
             sink.write(header)
 
     def write(self, data) -> int:
@@ -136,6 +146,7 @@ class BlockWriter:
                 _process(self._fmt, self._level, block, self._cipher, self._count)
             )
             self._count += 1
+            self._block_written()
             return
         self._pending.append(
             self._executor.submit(
@@ -148,10 +159,21 @@ class BlockWriter:
 
     def _write_oldest(self) -> None:
         self._sink.write(self._pending.popleft().result())
+        self._block_written()
+
+    def _block_written(self) -> None:
+        """A block reached the sink, in order: report how many are done."""
+        index = self._written
+        self._written += 1
+        if self._on_block is not None and index != self._final:
+            self._on_block(self._written)
 
     def close(self) -> None:
         try:
             if self._buffer:
+                # A checkpoint must sit on a full-block boundary, so the last
+                # partial block never gets one.
+                self._final = self._count
                 self._submit(bytes(self._buffer))
                 self._buffer.clear()
             while self._pending:

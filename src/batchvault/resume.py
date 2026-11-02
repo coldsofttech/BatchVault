@@ -213,22 +213,73 @@ def read(path: Path, command: str) -> Loaded:
     )
 
 
-def load_pack(path: Path) -> tuple[PackSettings, dict[str, ManifestEntry], Loaded]:
-    """The settings and finished files of an interrupted ``pack``."""
+@dataclass
+class Partial:
+    """What the journal knows about a file that was not finished."""
+
+    volumes: dict[int, tuple[int, str]] = field(
+        default_factory=dict
+    )  # index -> size, sha256
+    checkpoints: list[dict] = field(default_factory=list)  # oldest first
+
+
+@dataclass
+class PackJournal:
+    """A ``pack`` journal read back from disk."""
+
+    settings: PackSettings
+    finished: dict[str, ManifestEntry]
+    partial: dict[str, Partial]
+    loaded: Loaded
+
+
+def load_pack(path: Path) -> PackJournal:
+    """The settings, finished files and unfinished files of an interrupted ``pack``."""
     loaded = read(path, "pack")
     settings = PackSettings.from_dict(loaded.settings)
 
+    def damaged(why: str) -> ResumeError:
+        return ResumeError(f"The journal {path} is damaged: {why}.")
+
     finished: dict[str, ManifestEntry] = {}
+    partial: dict[str, Partial] = {}
     for index, record in enumerate(loaded.records):
-        if record.get("kind") != "file" or not isinstance(record.get("key"), str):
-            raise ResumeError(f"The journal {path} has an unknown record.")
-        try:
-            finished[record["key"]] = ManifestEntry.from_dict(
-                record.get("entry"), index
-            )
-        except Exception as exc:  # a malformed entry: the journal is not trustworthy
-            raise ResumeError(f"The journal {path} has a damaged entry: {exc}") from exc
-    return settings, finished, loaded
+        kind, key = record.get("kind"), record.get("key")
+        if not isinstance(key, str):
+            raise damaged("a record has no file")
+
+        if kind == "file":
+            try:
+                finished[key] = ManifestEntry.from_dict(record.get("entry"), index)
+            except Exception as exc:  # a malformed entry: do not trust the journal
+                raise damaged(f"a file entry is invalid ({exc})") from exc
+            partial.pop(key, None)  # finished: its partial state no longer matters
+        elif kind == "restart":
+            partial.pop(key, None)
+        elif kind == "volume":
+            number, size, digest = (
+                record.get("index"), record.get("size"), record.get("sha256"),
+            )  # fmt: skip
+            if not (
+                isinstance(number, int) and isinstance(size, int)
+                and isinstance(digest, str)
+            ):  # fmt: skip
+                raise damaged("a volume record is invalid")
+            partial.setdefault(key, Partial()).volumes[number] = (size, digest)
+        elif kind == "checkpoint":
+            if not (
+                isinstance(record.get("blocks"), int)
+                and isinstance(record.get("out"), int)
+                and isinstance(record.get("prefix"), str)
+                and isinstance(record.get("header"), str)
+                and isinstance(record.get("spec"), dict)
+            ):  # fmt: skip
+                raise damaged("a checkpoint record is invalid")
+            partial.setdefault(key, Partial()).checkpoints.append(record)
+        else:
+            raise damaged("a record has an unknown kind")
+
+    return PackJournal(settings, finished, partial, loaded)
 
 
 def load_unpack(path: Path) -> tuple[UnpackSettings, dict[str, str], Loaded]:

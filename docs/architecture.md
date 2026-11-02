@@ -81,8 +81,21 @@ and re-hashing every volume against the journal; otherwise the file is made agai
 through the usual staging and atomic install. `unpack` keeps a file that matches
 its manifest checksum, restores a missing one, redoes one it wrote that no longer
 matches, and never touches one it did not write. The manifest, signature and
-README are still written once at the end. Resume works file by file; continuing
-inside a single huge file is tracked separately (issue #9).
+README are still written once at the end.
+
+**Inside a file (native engine).** Compressed blocks are cut at exact multiples of
+the block size, so "k blocks are done" fixes both where the output stopped and
+where in the tar stream to carry on. `tarstream.TarStream` produces the very bytes
+`TarFile.add` does (a test compares them) but can start at any offset. While a
+file is built, `VolumeWriter` hashes each volume and reports it when full, and
+`BlockWriter` reports every block written in order; `checkpoint.FileCheckpoints`
+turns these into `volume` and `checkpoint` journal records, flushing the volume
+before each checkpoint. A resume (`find_resume`) takes the newest checkpoint whose
+complete volumes match their recorded SHA-256 and whose partial volume's prefix
+matches its hash, truncates anything after it, and continues at block *k* with
+numbering (and, when encrypted, the stored header) unchanged. The staging folder
+has a stable name derived from the file's key and is kept on failure. Records for a
+file are dropped from consideration once it is finished or restarted.
 
 When a worker raises or the user presses Ctrl+C, no further queued file is
 started (running ones finish), so each file is complete or absent.

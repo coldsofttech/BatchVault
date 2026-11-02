@@ -578,9 +578,9 @@ def cmd_pack(args) -> int:
     saved = None
     if args.resume:
         _reject_given(args, PACK_RESUME_FIXED, ["FILE"] if args.files else [])
-        saved, _, _ = journals.load_pack(
+        saved = journals.load_pack(
             Path(args.output).expanduser().resolve() / journals.PACK_JOURNAL
-        )
+        ).settings
     elif not args.files and not args.list:
         raise InputError("Give at least one FILE or use --list.")
 
