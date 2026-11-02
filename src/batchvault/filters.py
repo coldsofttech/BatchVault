@@ -10,7 +10,7 @@ from batchvault.errors import InputError
 
 def load_patterns(values: Iterable[str]) -> list[str]:
     """Expand ``@file`` references into the patterns listed in that file."""
-    patterns = []
+    patterns: list[str] = []
     for value in values:
         if value.startswith("@"):
             path = Path(value[1:]).expanduser()

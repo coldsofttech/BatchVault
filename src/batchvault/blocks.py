@@ -11,7 +11,7 @@ from __future__ import annotations
 import bz2
 import gzip
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 
 from batchvault import crypto
 from batchvault.errors import EngineError, EngineNotFoundError
@@ -20,7 +20,7 @@ from batchvault.options import FORMATS, MIB
 try:
     import lzma
 except ImportError:  # Python built without liblzma
-    lzma = None
+    lzma = None  # type: ignore[assignment]
 
 BLOCK_SIZE = 16 * MIB
 
@@ -116,7 +116,7 @@ class BlockWriter:
         self._max_pending = jobs * 2
         # With no jobs, blocks are compressed in the calling thread.
         self._executor = ThreadPoolExecutor(max_workers=jobs) if jobs else None
-        self._pending = deque()
+        self._pending: deque[Future[bytes]] = deque()
         self._buffer = bytearray()
         self._count = 0
         if cipher:

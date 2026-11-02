@@ -13,6 +13,7 @@ from rich.progress import (
     Progress,
     ProgressColumn,
     SpinnerColumn,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
@@ -65,8 +66,8 @@ class RunProgress:
         self._lock = threading.Lock()
         self._eta = EtaEstimator()
         self._by_bytes = False
-        self._overall = None
-        self._tasks: dict[Path, int] = {}
+        self._overall: TaskID | None = None
+        self._tasks: dict[Path, TaskID] = {}
         self._progress = Progress(
             SpinnerColumn(),
             TextColumn("[bold cyan]{task.description}"),
@@ -116,7 +117,9 @@ class RunProgress:
         if self._overall is not None:
             self._progress.advance(self._overall, event.size if self._by_bytes else 1)
 
-        label, style = STATUS_STYLE.get(event.status, ("", ""))
+        label, style = (
+            STATUS_STYLE.get(event.status, ("", "")) if event.status else ("", "")
+        )
         self._progress.console.print(
             Text.assemble((f"{label:<8}", style), event.source.name)
         )

@@ -7,6 +7,7 @@ Exit codes: 0 success, 1 some files failed, were skipped or the checks failed,
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import logging
 import os
@@ -748,6 +749,8 @@ def cmd_doctor(args) -> int:
 def _use_utf8() -> None:
     # Keep file names readable when output is redirected on Windows.
     for stream in (sys.stdout, sys.stderr):
+        if not isinstance(stream, io.TextIOWrapper):
+            continue
         try:
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
@@ -766,11 +769,11 @@ def _load_config(argv: list[str]) -> dict | None:
             raise ConfigError(f"Config file not found: {path}")
         return load_config(path)  # named by the user, so trusted
 
-    path = find_config()
-    if path is None:
+    found = find_config()
+    if found is None:
         return None
-    config = load_config(path)
-    reject_restricted(config, path)  # found by searching: not fully trusted
+    config = load_config(found)
+    reject_restricted(config, found)  # found by searching: not fully trusted
     return config
 
 

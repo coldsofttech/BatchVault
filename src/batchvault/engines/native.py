@@ -5,6 +5,7 @@ import tarfile
 import tempfile
 import zlib
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 from batchvault import crypto
 from batchvault.blocks import (
@@ -34,7 +35,13 @@ except ImportError:
     _LZMA_ERRORS = ()
 
 # Errors raised while reading damaged, truncated or unreadable archive data.
-_READ_ERRORS = (tarfile.TarError, EOFError, zlib.error, OSError, *_LZMA_ERRORS)
+_READ_ERRORS: tuple[type[BaseException], ...] = (
+    tarfile.TarError,
+    EOFError,
+    zlib.error,
+    OSError,
+    *_LZMA_ERRORS,
+)
 
 _STREAM_BUFFER = MIB
 _CHUNK = MIB
@@ -211,8 +218,9 @@ class NativeEngine(Engine):
 
         try:
             with VolumeReader(volumes) as reader:
-                source = reader
+                source: Any = reader
                 if encrypted:
+                    assert password is not None  # checked above
                     fmt, source = crypto.open_decrypted(reader, password)
 
                 with open_decompressed(fmt, source) as stream:
