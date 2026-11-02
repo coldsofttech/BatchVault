@@ -223,6 +223,12 @@ def build_parser(config: dict | None = None) -> argparse.ArgumentParser:
         help=f"Sign the manifest with this private key (password: {ENV_KEY_PASSWORD}).",
     )
     pack.add_argument(
+        "--no-readme",
+        dest="readme",
+        action="store_false",
+        help="Do not write BATCHVAULT-README.md next to the manifest.",
+    )
+    pack.add_argument(
         "--delete-source",
         action="store_true",
         help="Delete each original after proving the archive restores identically.",
@@ -556,6 +562,7 @@ def cmd_pack(args) -> int:
             sign_key=args.sign_key,
             sign_key_password=os.environ.get(ENV_KEY_PASSWORD) or None,
             delete_source=args.delete_source and not args.dry_run,
+            readme=args.readme,
             confirm=_confirm_deletion(args, progress),
             progress=progress,
         )

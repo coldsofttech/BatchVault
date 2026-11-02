@@ -46,6 +46,7 @@ from batchvault.models import (
 )
 from batchvault.names import unsafe_on_windows
 from batchvault.options import PackOptions, format_size, parse_size
+from batchvault.readme import README_NAME, ReadmeContext, render_readme, write_readme
 from batchvault.volumes import STAGING_PREFIX, cleanup_staging, existing_volumes
 
 Progress = Callable[[ProgressEvent], None]
@@ -169,6 +170,7 @@ def pack(
     sign_key: str | Path | None = None,
     sign_key_password: str | None = None,
     delete_source: bool = False,
+    readme: bool = True,
     confirm: Confirm | None = None,
     progress: Progress | None = None,
 ) -> RunResult:
@@ -192,9 +194,15 @@ def pack(
     engine error. ``sign_key`` signs the manifest with an Ed25519 private key.
     ``delete_source`` deletes each original after a full restore-and-compare
     proves the archive is good (and ``confirm``, if given, agrees).
+
+    Unless ``readme`` is false, a ``BATCHVAULT-README.md`` is written next to the
+    manifest: how the archive was made, how to install BatchVault and how to
+    restore it. It never holds a password or key. An existing file of that name
+    is only replaced if BatchVault wrote it.
     """
     if retries < 0:
         raise OptionsError("retries cannot be negative")
+    include, exclude = tuple(include), tuple(exclude)
     level = parse_level(level)
     auto_level = level == AUTO  # each file gets the level that suits its type
 
@@ -269,10 +277,52 @@ def pack(
     if any(entry for _, entry in outcomes):
         known.save(manifest_path)
         _sign_or_clear(manifest_path, private_key, result)
+        if readme:
+            _write_readme(
+                manifest_path, known, backend, options, auto_level, include, exclude,
+                update, verify, delete_source, bool(password), private_key is not None,
+                result,
+            )  # fmt: skip
 
     if delete_source:
         _delete_sources(backend, outcomes, password, confirm, result)
     return result
+
+
+def _write_readme(
+    manifest_path: Path,
+    manifest: Manifest,
+    backend: Engine,
+    options: PackOptions,
+    auto_level: bool,
+    include: tuple[str, ...],
+    exclude: tuple[str, ...],
+    update: bool,
+    verified: bool,
+    delete_source: bool,
+    encrypted: bool,
+    signed: bool,
+    result: RunResult,
+) -> None:
+    context = ReadmeContext(
+        engine=backend.name,
+        format=_format_name(backend, options),
+        level="auto" if auto_level else str(options.level),
+        volume_size=options.volume_size,
+        encrypted=encrypted,
+        signed=signed,
+        update=update,
+        verified=verified,
+        delete_source=delete_source,
+        include=include,
+        exclude=exclude,
+        manifest_name=manifest_path.name,
+    )
+    warning = write_readme(
+        manifest_path.with_name(README_NAME), render_readme(context, manifest)
+    )
+    if warning:
+        result.warnings.append(warning)
 
 
 def _sign_or_clear(manifest_path: Path, private_key, result: RunResult) -> None:

@@ -45,7 +45,9 @@ bv.pack(
     include=(), exclude=(), force=False, update=False, verify=False,
     manifest=None, allow_archives=False, strict=False, dry_run=False,
     password=None, retries=3, sign_key=None, sign_key_password=None,
-    delete_source=False, confirm=None, progress=None,
+    delete_source=False,
+    readme=True,      # write BATCHVAULT-README.md next to the manifest
+    confirm=None, progress=None,
 )
 ```
 
@@ -53,6 +55,11 @@ bv.pack(
   `"bzip2"` or `"store"` (built-in engine only).
 - `password` encrypts the archives (the built-in engine needs
   `batchvault[crypto]`). `sign_key` is the path of an Ed25519 private key.
+- `readme=True` writes `BATCHVAULT-README.md` next to the manifest: how the
+  archive was made, how to install BatchVault and the exact restore commands. It
+  never contains the password or keys. An existing file of that name is only
+  replaced if BatchVault wrote it (it starts with a marker line); otherwise a
+  warning is added to `RunResult.warnings`. Pass `readme=False` to skip it.
 - `delete_source=True` deletes each original after a restore-and-compare proves
   the archive. `confirm(paths) -> bool`, if given, is asked first; with no
   `confirm`, deletion is automatic once the check passes.

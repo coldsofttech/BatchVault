@@ -27,6 +27,7 @@ src/batchvault/
   blocks.py         block-parallel compression, format detection
   crypto.py         optional AES-256-GCM record encryption (native engine)
   signing.py        optional Ed25519 manifest signatures
+  readme.py         BATCHVAULT-README.md: how the archive was made and restored
   logs.py, security.py, eta.py, doctor.py
   engines/          base, native, sevenzip, registry
 ```

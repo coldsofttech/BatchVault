@@ -94,6 +94,7 @@ subfolder (see "Folders are kept" below).
 | `--verify` | Test each archive after creating it | |
 | `--encrypt` | Encrypt (password from `BATCHVAULT_PASSWORD` or `--password-file`) | |
 | `--sign-key FILE` | Sign the manifest with this private key | |
+| `--no-readme` | Do not write `BATCHVAULT-README.md` next to the manifest ([details](#the-readme-inside-the-archive)) | writes it |
 | `--delete-source` | Delete each original after a full restore-and-compare proves the archive | |
 | `--yes` | Do not ask before `--delete-source` deletes | |
 | `--retries N` | Retry a file after an I/O or engine error | `3` |
@@ -108,6 +109,32 @@ subfolder (see "Folders are kept" below).
 
 `--delete-source` never deletes without an explicit `--yes` unless you answer
 `y` at a terminal prompt.
+
+### The README inside the archive
+
+After a successful `pack`, BatchVault writes `BATCHVAULT-README.md` next to the
+manifest. It is for whoever opens the archive later, perhaps years on and
+without knowing what BatchVault is. It says:
+
+- how the archive was made: BatchVault version, creation time, engine, format,
+  level, volume size, include/exclude patterns, whether it is encrypted or
+  signed, and the number of files, volumes and bytes;
+- how to install exactly that version (`pip`, `pipx`, `uv tool`, plus the Docker
+  image and GitHub Action);
+- the `unpack` and `verify` commands for this archive, including
+  `--password-file` or `--public-key` when they apply, and the other ways to
+  restore (a folder, a single volume, a list).
+
+It never contains a password, key or token: for an encrypted archive it only
+says a password is needed. It is not a volume, so `verify`, `inspect`,
+`unpack` and `--update` ignore it. After `--update` it is rewritten to describe
+the whole archive.
+
+The first line of the file is a marker. BatchVault only replaces a file that has
+it, so a file of your own called `BATCHVAULT-README.md` is never overwritten (you
+get a warning instead). Delete the marker line from the generated file if you
+want to keep your edits. Use `--no-readme` (or `readme = false` under `[pack]`
+in the config file) to turn it off.
 
 ### Folders are kept
 

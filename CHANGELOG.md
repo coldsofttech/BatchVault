@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- `pack` now writes `BATCHVAULT-README.md` next to the manifest: how the archive was made, how to install the same BatchVault version, and the exact `unpack` and `verify` commands for this archive (with the password-file or public-key option when it is encrypted or signed). It never contains a password or key, it is not treated as a volume, and a file of your own with that name is never overwritten. Turn it off with `--no-readme` (`readme=False` in Python).
+
 ## [0.1.0] - 2026-10-24
 
 First release.
