@@ -15,7 +15,7 @@ result = bv.pack(
     verify=True,
 )
 
-print(result.status)            # Status.SUCCESS / FAILED / SKIPPED / PARTIAL
+print(result.status)  # Status.SUCCESS / FAILED / SKIPPED / PARTIAL
 for entry in result.entries:
     print(entry.source.name, entry.status, entry.message)
 ```
@@ -74,8 +74,8 @@ bv.pack(
   subfolder).
 
   ```python
-  files = bv.list_files("D:/Media")            # each entry remembers D:/ as its root
-  bv.pack([f.path for f in files], "archives") # shared folder: keeps below D:/Media
+  files = bv.list_files("D:/Media")  # each entry remembers D:/ as its root
+  bv.pack([f.path for f in files], "archives")  # shared folder: keeps below D:/Media
   # to keep "Media" too, pass the listing's root:
   bv.pack([f.path for f in files], "archives", root=files[0].root)
   ```
@@ -83,11 +83,17 @@ bv.pack(
 ### unpack and verify
 
 ```python
-result = bv.unpack("archives", "restored", force=False, update=False,
-                   password=None, public_key=None, retries=3)
+result = bv.unpack(
+    "archives",
+    "restored",
+    force=False,
+    update=False,
+    password=None,
+    public_key=None,
+    retries=3,
+)
 
-result = bv.verify("archives", against="originals", password=None,
-                   public_key=None)
+result = bv.verify("archives", against="originals", password=None, public_key=None)
 ```
 
 `source` can be a manifest, a folder, any volume, or a list of volumes.
@@ -140,6 +146,7 @@ thread-safe.
 def show(event: bv.ProgressEvent):
     print(event.kind, event.source.name, event.status)
 
+
 bv.pack(["a.bin", "b.bin"], "archives", progress=show)
 ```
 
@@ -153,6 +160,7 @@ it where you like:
 
 ```python
 import logging
+
 logging.getLogger("batchvault").addHandler(logging.StreamHandler())
 logging.getLogger("batchvault").setLevel(logging.INFO)
 ```
@@ -175,6 +183,10 @@ bv.unpack("archives", "restored", public_key="batchvault.pub", password="...")
 Free disk space safely, asking first:
 
 ```python
-bv.pack(files, "archives", delete_source=True,
-        confirm=lambda paths: input(f"Delete {len(paths)} files? ") == "y")
+bv.pack(
+    files,
+    "archives",
+    delete_source=True,
+    confirm=lambda paths: input(f"Delete {len(paths)} files? ") == "y",
+)
 ```

@@ -114,9 +114,7 @@ class RunProgress:
         if task is not None:
             self._progress.remove_task(task)
         if self._overall is not None:
-            self._progress.advance(
-                self._overall, event.size if self._by_bytes else 1
-            )
+            self._progress.advance(self._overall, event.size if self._by_bytes else 1)
 
         label, style = STATUS_STYLE.get(event.status, ("", ""))
         self._progress.console.print(

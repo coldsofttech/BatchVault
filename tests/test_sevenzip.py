@@ -62,8 +62,9 @@ def clean_environment(monkeypatch):
     monkeypatch.delenv(ENV_VAR, raising=False)
 
 
-def test_program_in_the_current_folder_is_not_used(tmp_path, monkeypatch,
-                                                   clean_environment):
+def test_program_in_the_current_folder_is_not_used(
+    tmp_path, monkeypatch, clean_environment
+):
     planted = _fake_executable(tmp_path)
     monkeypatch.chdir(tmp_path)
     # Even with the current folder (and empty entries) on PATH.
@@ -88,8 +89,9 @@ def test_relative_path_entries_are_ignored(tmp_path, monkeypatch, clean_environm
     assert found.resolve().parent != (tmp_path / "bin").resolve()
 
 
-def test_program_in_a_real_path_folder_is_found(tmp_path, monkeypatch,
-                                                clean_environment):
+def test_program_in_a_real_path_folder_is_found(
+    tmp_path, monkeypatch, clean_environment
+):
     elsewhere = tmp_path / "tools"
     wanted = _fake_executable(elsewhere)
     work = tmp_path / "work"

@@ -105,9 +105,7 @@ def test_encrypted_roundtrip(tmp_path, media):
 
 def test_delete_source_after_roundtrip(tmp_path, media):
     original = (media / "notes.txt").read_bytes()
-    bv.pack(
-        [media / "notes.txt"], tmp_path / "a", engine="7zip", delete_source=True
-    )
+    bv.pack([media / "notes.txt"], tmp_path / "a", engine="7zip", delete_source=True)
     assert not (media / "notes.txt").exists()
 
     bv.unpack(tmp_path / "a", tmp_path / "out")
