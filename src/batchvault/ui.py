@@ -116,6 +116,8 @@ class RunProgress:
             self._progress.remove_task(task)
         if self._overall is not None:
             self._progress.advance(self._overall, event.size if self._by_bytes else 1)
+        if event.resumed and self._by_bytes:
+            self._eta.skip(event.size)
 
         label, style = (
             STATUS_STYLE.get(event.status, ("", "")) if event.status else ("", "")
@@ -197,6 +199,11 @@ def print_summary(
         if status != Status.PARTIAL and result.count(status)
     )
     console.print(f"[bold]Summary:[/bold] {escape(counts or 'nothing to do')}")
+    if result.resume:
+        console.print(
+            f"[bold]Resumed:[/bold] {result.reused} reused from the earlier run, "
+            f"{result.redone} redone."
+        )
     if result.manifest and any(e.status == Status.SUCCESS for e in result.entries):
         console.print(f"Manifest: {escape(str(result.manifest))}")
 

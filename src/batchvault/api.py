@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect as inspect_module
 import logging
 import os
 import tempfile
+import threading
 import time
 import unicodedata
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from batchvault import resume as journals
 from batchvault import signing
 from batchvault.crypto import require_cryptography
 from batchvault.engines.base import Engine
@@ -23,6 +26,7 @@ from batchvault.errors import (
     ManifestError,
     OptionsError,
     OutputExistsError,
+    ResumeError,
     SignatureError,
 )
 from batchvault.filters import PathFilter
@@ -171,6 +175,7 @@ def pack(
     sign_key_password: str | None = None,
     delete_source: bool = False,
     readme: bool = True,
+    resume: bool = False,
     confirm: Confirm | None = None,
     progress: Progress | None = None,
 ) -> RunResult:
@@ -199,21 +204,81 @@ def pack(
     manifest: how the archive was made, how to install BatchVault and how to
     restore it. It never holds a password or key. An existing file of that name
     is only replaced if BatchVault wrote it.
+
+    While it runs, ``pack`` keeps a journal (``.batchvault-pack.jsonl``) in the
+    output folder, recording every finished file; it is removed when the run ends
+    without failures. With ``resume`` the run continues from that journal: every
+    setting (files, engine, format, level, volume size, patterns, ...) is taken
+    from the earlier run, so passing one of them as well is an error, and so is
+    having no journal. Files that are finished, unchanged and whose volumes still
+    match their checksums are reused; the rest are done again. ``password`` and
+    ``sign_key`` are never stored, so give them again if the earlier run used
+    them. ``jobs``, ``retries``, ``seven_zip``, ``confirm`` and ``progress`` may
+    be passed freely.
     """
     if retries < 0:
         raise OptionsError("retries cannot be negative")
-    include, exclude = tuple(include), tuple(exclude)
+    files, include, exclude = list(files), tuple(include), tuple(exclude)
+    out_root = Path(output).expanduser().resolve()
+
+    saved = None
+    journaled: dict[str, ManifestEntry] = {}
+    loaded = None
+    if resume:
+        _reject_resume_conflicts(
+            pack,
+            dict(
+                files=files, list_file=list_file, root=root, engine=engine,
+                format=format, level=level, volume_size=volume_size,
+                include=include, exclude=exclude, force=force, update=update,
+                verify=verify, manifest=manifest, allow_archives=allow_archives,
+                strict=strict, dry_run=dry_run, delete_source=delete_source,
+                readme=readme,
+            ),
+        )  # fmt: skip
+        saved, journaled, loaded = journals.load_pack(out_root / journals.PACK_JOURNAL)
+        engine, format, level = saved.engine, saved.format, saved.level
+        volume_size, include, exclude = (
+            saved.volume_size,
+            tuple(saved.include),
+            tuple(saved.exclude),
+        )
+        manifest, update, verify = saved.manifest, saved.update, saved.verify
+        delete_source, strict, readme = saved.delete_source, saved.strict, saved.readme
+        if saved.encrypted and not password:
+            raise ResumeError(
+                "The earlier run was encrypted, so the password is required to "
+                "resume (it is never stored)."
+            )
+        if password and not saved.encrypted:
+            raise ResumeError(
+                "The earlier run was not encrypted; do not pass a password, or "
+                "the archive would mix encrypted and plain files."
+            )
+        if saved.signed and not sign_key:
+            raise ResumeError(
+                "The earlier run signed the manifest, so the private key is "
+                "required to sign it again (it is never stored)."
+            )
+        if sign_key and not saved.signed:
+            raise ResumeError(
+                "The earlier run did not sign the manifest; do not pass a private key."
+            )
+
     level = parse_level(level)
     auto_level = level == AUTO  # each file gets the level that suits its type
 
-    root_path = Path(root).expanduser().resolve() if root is not None else None
-    sourced = gather_sources(
-        files,
-        list_file,
-        path_filter=PathFilter(include, exclude),
-        allow_archives=allow_archives,
-        root=root_path,
-    )
+    if saved is not None:
+        sourced = [(Path(path), folder) for path, folder in saved.sources]
+    else:
+        root_path = Path(root).expanduser().resolve() if root is not None else None
+        sourced = gather_sources(
+            files,
+            list_file,
+            path_filter=PathFilter(include, exclude),
+            allow_archives=allow_archives,
+            root=root_path,
+        )
     sources = [path for path, _ in sourced]
     folders = dict(sourced)
     backend = get_engine(engine, seven_zip)
@@ -237,7 +302,6 @@ def pack(
         password=password,
     )
 
-    out_root = Path(output).expanduser().resolve()
     manifest_path = (
         Path(manifest).expanduser().resolve() if manifest else out_root / MANIFEST_NAME
     )
@@ -252,21 +316,68 @@ def pack(
     cleanup_staging(out_root)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    log.info("Packing %d file(s) with %s into %s", len(sources), backend.name, out_root)
+    journal_path = out_root / journals.PACK_JOURNAL
+    missing: list[tuple[FileResult, ManifestEntry | None]] = []
+    if resume and loaded is not None:
+        if password:
+            _check_resume_password(backend, journaled, manifest_path.parent, password)
+        present = []
+        for source in sources:  # a source that vanished cannot be archived again
+            if source.is_file():
+                present.append(source)
+                continue
+            failure = FileResult(source, Status.FAILED, "Source file not found.")
+            failure.folder, failure.name = folders[source], source.name
+            missing.append((failure, None))
+        sources = present
+        journal = journals.Journal.reopen(journal_path, loaded.good_size)
+    else:
+        journal = journals.Journal.create(
+            journal_path,
+            "pack",
+            journals.PackSettings(
+                sources=[(str(path), folder) for path, folder in sourced],
+                engine=backend.name, format=format, level=level,
+                volume_size=options.volume_size, jobs=jobs, retries=retries,
+                include=list(include), exclude=list(exclude),
+                manifest=str(manifest_path), update=update, verify=verify,
+                delete_source=delete_source, strict=strict, readme=readme,
+                encrypted=bool(password), signed=bool(sign_key),
+            ).to_dict(),
+        )  # fmt: skip
+
+    log.info(
+        "%s %d file(s) with %s into %s",
+        "Resuming" if resume else "Packing",
+        len(sources),
+        backend.name,
+        out_root,
+    )
     total = sum(source.stat().st_size for source in sources)
     _notify(progress, ProgressEvent("plan", out_root, total, count=len(sources)))
 
     def work(source: Path) -> tuple[FileResult, ManifestEntry | None]:
-        return _pack_one(
-            backend, source, folders[source], out_root, manifest_path.parent,
+        folder = folders[source]
+        key = f"{folder}/{source.name}" if folder else source.name
+        outcome, entry = _pack_one(
+            backend, source, folder, out_root, manifest_path.parent,
             options, verify, progress, known if update else None, retries,
-            auto_level,
+            auto_level, journaled.get(key), resume,
         )  # fmt: skip
+        if entry is not None and not outcome.resumed:
+            journal.append({"kind": "file", "key": key, "entry": entry.to_dict()})
+        return outcome, entry
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        outcomes = list(executor.map(work, sources))
+    try:
+        outcomes = _run_all(workers, work, sources)
+    except BaseException:
+        journal.close()  # keep it: it is what --resume continues from
+        raise
+    outcomes += missing
 
-    result = RunResult(warnings=warnings, manifest=manifest_path, engine=backend.name)
+    result = RunResult(
+        warnings=warnings, manifest=manifest_path, engine=backend.name, resume=resume
+    )
     for file_result, entry in outcomes:
         result.entries.append(file_result)
         if entry:
@@ -284,7 +395,90 @@ def pack(
 
     if delete_source:
         _delete_sources(backend, outcomes, password, confirm, result)
+
+    # Keep the journal while something failed so --resume can retry just that.
+    if any(file_result.status == Status.FAILED for file_result, _ in outcomes):
+        journal.close()
+    else:
+        journal.remove()
     return result
+
+
+class _Stopped(Exception):
+    """A queued file was not started because the run was stopped."""
+
+
+def _run_all(workers: int, work: Callable, items: list) -> list:
+    """Run ``work`` on every item in order; after an error or Ctrl+C, start no more.
+
+    Files already running finish, so each is either complete or absent. The
+    first error is raised.
+    """
+    stop = threading.Event()
+
+    def guarded(item):
+        if stop.is_set():
+            raise _Stopped
+        try:
+            return work(item)
+        except BaseException:
+            stop.set()
+            raise
+
+    executor = ThreadPoolExecutor(max_workers=workers)
+    try:
+        results = list(executor.map(guarded, items))
+    except BaseException:
+        stop.set()
+        executor.shutdown(wait=True, cancel_futures=True)
+        raise
+    executor.shutdown()
+    return results
+
+
+def _reject_resume_conflicts(function, given: dict) -> None:
+    """Refuse settings passed together with ``resume`` (they come from the journal)."""
+    parameters = inspect_module.signature(function).parameters
+    clashing = []
+    for name, value in given.items():
+        default = parameters[name].default
+        if value is None or isinstance(value, bool | int | str | Path):
+            differs = value != default
+        else:
+            differs = list(value) != list(default)
+        if differs:
+            clashing.append(name)
+    if clashing:
+        raise OptionsError(
+            "resume takes every setting from the earlier run, so do not also pass: "
+            + ", ".join(clashing)
+            + "."
+        )
+
+
+def _check_resume_password(
+    backend: Engine,
+    journaled: dict[str, ManifestEntry],
+    manifest_dir: Path,
+    password: str,
+) -> None:
+    """Refuse a password that does not open the archives made by the earlier run.
+
+    Reusing files made with another password would leave an archive that cannot
+    be restored with a single password. The smallest intact encrypted archive
+    is tested, which keeps the check cheap.
+    """
+    for entry in sorted(journaled.values(), key=lambda item: item.size):
+        if not entry.encrypted or entry.check_volumes(manifest_dir):
+            continue
+        try:
+            backend.test(manifest_dir / entry.volumes[0].file, password=password)
+        except EngineError as exc:
+            raise ResumeError(
+                "The password does not match the archives made by the earlier "
+                f"run ({exc})."
+            ) from exc
+        return
 
 
 def _write_readme(
@@ -426,6 +620,8 @@ def _pack_one(
     known: Manifest | None,
     retries: int,
     auto_level: bool = False,
+    journaled: ManifestEntry | None = None,
+    resume: bool = False,
 ) -> tuple[FileResult, ManifestEntry | None]:
     stat = source.stat()
     size = stat.st_size
@@ -436,12 +632,35 @@ def _pack_one(
     try:
         key = f"{folder}/{source.name}" if folder else source.name
         previous = known.entries.get(key) if known is not None else None
-        if previous and _up_to_date(previous, stat, backend, options, manifest_dir):
+        redone = ""
+        if journaled is not None:
+            redone = _reuse_problem(journaled, stat, manifest_dir)
+
+        if journaled is not None and not redone:
+            # An earlier run finished this file and nothing has changed since.
+            entry = journaled
+            volumes = [manifest_dir / volume.file for volume in journaled.volumes]
+            stored = sum(volume.size for volume in journaled.volumes)
+            outcome = FileResult(
+                source,
+                Status.SUCCESS,
+                f"Resumed: already archived, {len(volumes)} "
+                f"volume{'' if len(volumes) == 1 else 's'}, "
+                f"{format_size(stored)}, checksums verified",
+                size,
+                volumes,
+                archive=volumes[0],
+                stored_size=stored,
+                level=journaled.level,
+                resumed=True,
+            )
+        elif previous and _up_to_date(previous, stat, backend, options, manifest_dir):
             outcome = FileResult(source, Status.SKIPPED, "Up to date.", size)
         else:
-            # In update mode a changed file replaces its old archive.
+            # In update mode a changed file replaces its old archive; a resumed
+            # run replaces what an earlier run left (its own output).
             file_options = options
-            if known is not None:
+            if known is not None or resume:
                 file_options = dataclasses.replace(options, force=True)
 
             destination = _folder_path(out_root, folder) / source.name
@@ -483,6 +702,9 @@ def _pack_one(
                 stored_size=stored,
                 level=options.level,
             )
+            if redone:
+                outcome.redone = redone
+                outcome.message += f"; redone: {redone}"
     except OutputExistsError as exc:
         outcome = FileResult(source, Status.SKIPPED, str(exc), size)
     except (BatchVaultError, OSError) as exc:
@@ -491,8 +713,27 @@ def _pack_one(
     outcome.folder = folder
     outcome.name = source.name
     _log_result("pack", outcome)
-    _notify(progress, ProgressEvent("finish", source, size, outcome.status))
+    _notify(
+        progress,
+        ProgressEvent("finish", source, size, outcome.status, resumed=outcome.resumed),
+    )
     return outcome, entry
+
+
+def _reuse_problem(
+    entry: ManifestEntry, stat: os.stat_result, manifest_dir: Path
+) -> str:
+    """Why a file an earlier run finished cannot be reused; empty if it can.
+
+    The volumes are checked against their checksums, never trusted by name or
+    size alone: a power cut can leave files that exist but are cut short.
+    """
+    if stat.st_size != entry.size or not entry.mtime_ns:
+        return "the source file changed"
+    if stat.st_mtime_ns != entry.mtime_ns:
+        return "the source file changed"
+    problems = entry.check_volumes(manifest_dir)
+    return problems[0] if problems else ""
 
 
 def _roundtrip_problem(
@@ -587,7 +828,7 @@ def _plan_event(where: Path, targets: list[Target]) -> ProgressEvent:
 
 
 def unpack(
-    source: str | Path,
+    source: str | Path | None = None,
     output: str | Path = "restored",
     *,
     force: bool = False,
@@ -598,6 +839,7 @@ def unpack(
     public_key: str | Path | None = None,
     retries: int = 3,
     max_output_size: str | int | None = None,
+    resume: bool = False,
     progress: Progress | None = None,
 ) -> RunResult:
     """Restore files from a manifest, a folder, any volume, or a list of volumes.
@@ -611,36 +853,123 @@ def unpack(
     ``max_output_size`` refuses an archive that would expand beyond that many
     bytes (a decompression bomb) before anything is written. With a manifest an
     archive may never expand beyond the size recorded for its file.
+
+    While it runs, ``unpack`` keeps a journal (``.batchvault-unpack.jsonl``) in
+    the output folder, recording the files it placed; it is removed when the run
+    ends without failures. With ``resume`` (and no ``source``) the run continues
+    from that journal, using the source of the earlier run: a file that is
+    already there and matches its checksum is kept, a missing one is restored,
+    and one this run wrote earlier but that no longer matches is restored again.
+    A file that differs and was not written by this run is never touched.
+    ``force`` and ``update`` cannot be combined with ``resume``; ``public_key``
+    must be given again if the earlier run required a signature.
     """
     if retries < 0:
         raise OptionsError("retries cannot be negative")
     max_bytes = parse_size(max_output_size) if max_output_size is not None else None
+    out_root = Path(output).expanduser().resolve()
+
+    saved = None
+    placed: dict[str, str] = {}
+    loaded = None
+    if resume:
+        _reject_resume_conflicts(
+            unpack, dict(source=source, force=force, update=update)
+        )
+        saved, placed, loaded = journals.load_unpack(out_root / journals.UNPACK_JOURNAL)
+        if saved.signed and not public_key:
+            raise ResumeError(
+                "The earlier run required a valid signature, so the public key "
+                "is required to resume."
+            )
+        source = saved.source
+    elif source is None:
+        raise OptionsError("source is required unless resume is set.")
 
     targets = _resolve(source, public_key)
 
-    out_root = Path(output).expanduser().resolve()
+    manifests = {
+        str(path): hash_file(path)
+        for path in {target.manifest for target in targets if target.manifest}
+    }
+    if resume and saved is not None:
+        if any(target.entry is None for target in targets):
+            raise ResumeError("Resuming needs a manifest to check the files against.")
+        if manifests != saved.manifests:
+            raise ResumeError(
+                "The archive's manifest is not the one the earlier run used "
+                "(it was replaced or changed), so the output cannot be resumed. "
+                "Run unpack without --resume to start again."
+            )
+
     cleanup_staging(out_root)
     workers, _ = _split_jobs(jobs, len(targets))
 
-    log.info("Unpacking %d archive(s) into %s", len(targets), out_root)
+    journal = None
+    created_folder = not out_root.exists()
+    if manifests:
+        out_root.mkdir(parents=True, exist_ok=True)
+        journal_path = out_root / journals.UNPACK_JOURNAL
+        if resume and loaded is not None:
+            journal = journals.Journal.reopen(journal_path, loaded.good_size)
+        else:
+            journal = journals.Journal.create(
+                journal_path,
+                "unpack",
+                journals.UnpackSettings(
+                    source=str(Path(str(source)).expanduser().resolve()),
+                    manifests=manifests,
+                    signed=bool(public_key),
+                ).to_dict(),
+            )
+
+    log.info(
+        "%s %d archive(s) into %s",
+        "Resuming" if resume else "Unpacking",
+        len(targets),
+        out_root,
+    )
     _notify(progress, _plan_event(out_root, targets))
 
     def work(target: Target) -> FileResult:
         size = target.entry.size if target.entry else 0
         _notify(progress, ProgressEvent("start", target.volume, size))
         outcome = _restore_one(
-            target, out_root, force, update, seven_zip, password, retries, max_bytes
-        )
+            target, out_root, force, update, seven_zip, password, retries, max_bytes,
+            resume, placed, journal,
+        )  # fmt: skip
         outcome.folder = target.entry.folder if target.entry else ""
         outcome.name = target.name
         _log_result("unpack", outcome)
-        _notify(progress, ProgressEvent("finish", target.volume, size, outcome.status))
+        _notify(
+            progress,
+            ProgressEvent(
+                "finish", target.volume, size, outcome.status, resumed=outcome.resumed
+            ),
+        )
         return outcome
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        outcomes = list(executor.map(work, targets))
+    try:
+        outcomes = _run_all(workers, work, targets)
+    except BaseException:
+        if journal:
+            journal.close()  # keep it: it is what --resume continues from
+        raise
 
-    result = RunResult(entries=outcomes)
+    # Keep the journal while something failed so --resume can retry just that.
+    if journal:
+        failed = any(outcome.status == Status.FAILED for outcome in outcomes)
+        if failed and (journal.appended or resume):
+            journal.close()
+        else:  # finished, or failed before restoring anything: nothing to resume
+            journal.remove()
+            if created_folder:
+                try:
+                    out_root.rmdir()  # only if it is empty
+                except OSError:
+                    pass
+
+    result = RunResult(entries=outcomes, resume=resume)
     if any(target.entry is None for target in targets):
         result.warnings.append(
             "No manifest found for some archives; their checksums were not verified."
@@ -672,6 +1001,9 @@ def _restore_one(
     password: str | None,
     retries: int,
     max_bytes: int | None,
+    resume: bool = False,
+    placed: dict[str, str] | None = None,
+    journal: journals.Journal | None = None,
 ) -> FileResult:
     volume = target.volume
     entry = target.entry
@@ -683,7 +1015,28 @@ def _restore_one(
         folder = entry.folder if entry else ""
         destination_dir = _destination_folder(out_root, folder)
         destination = destination_dir / target.name
-        if destination.exists() and not force:
+        redone = ""
+        if resume and entry is not None and destination.exists():
+            if _matches(destination, entry):
+                return FileResult(
+                    volume,
+                    Status.SUCCESS,
+                    f"Resumed: already restored, {format_size(entry.size)}, "
+                    "checksum verified",
+                    entry.size,
+                    restored=[destination],
+                    resumed=True,
+                )
+            if destination.relative_to(out_root).as_posix() not in (placed or {}):
+                return FileResult(
+                    volume,
+                    Status.SKIPPED,
+                    f"{target.name} exists and differs from the archive, and an "
+                    "earlier run did not write it, so it was left alone. "
+                    "Use force to overwrite.",
+                )
+            redone = "the restored file no longer matches its checksum"
+        elif destination.exists() and not force:
             if not update:
                 return FileResult(
                     volume,
@@ -741,10 +1094,24 @@ def _restore_one(
                 os.replace(path, destination_dir / name)
                 final.append(destination_dir / name)
 
+        if journal is not None and entry is not None:
+            journal.append(
+                {
+                    "kind": "file",
+                    "path": final[0].relative_to(out_root).as_posix(),
+                    "sha256": entry.sha256,
+                    "size": entry.size,
+                }
+            )
+
         size = sum(path.stat().st_size for path in final)
         checked = "checksum verified" if entry else "checksum not verified"
         message = f"{format_size(size)} restored, {checked}"
-        return FileResult(volume, Status.SUCCESS, message, size, restored=final)
+        if redone:
+            message += f"; redone: {redone}"
+        return FileResult(
+            volume, Status.SUCCESS, message, size, restored=final, redone=redone
+        )
     except (BatchVaultError, OSError) as exc:
         return FileResult(volume, Status.FAILED, str(exc))
 

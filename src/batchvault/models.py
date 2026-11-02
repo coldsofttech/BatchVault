@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 
 class Status(StrEnum):
@@ -33,6 +34,8 @@ class FileResult:
     folder: str = ""  # folder of the file under the root ("" = flat)
     name: str = ""  # the original file's name (pack, unpack and verify)
     level: int | None = None  # compression level used (pack)
+    resumed: bool = False  # finished by an earlier run and reused (--resume)
+    redone: str = ""  # why a file from an earlier run was done again (--resume)
 
     def to_dict(self) -> dict:
         return {
@@ -48,6 +51,8 @@ class FileResult:
             "stored_size": self.stored_size,
             "restored": [str(path) for path in self.restored],
             "warnings": self.warnings,
+            "resumed": self.resumed,
+            "redone": self.redone or None,
         }
 
 
@@ -59,6 +64,7 @@ class RunResult:
     manifest: Path | None = None
     warnings: list[str] = field(default_factory=list)
     engine: str = ""
+    resume: bool = False  # the run continued an earlier one (--resume)
 
     @property
     def status(self) -> Status:
@@ -74,14 +80,27 @@ class RunResult:
     def count(self, status: Status) -> int:
         return sum(1 for entry in self.entries if entry.status == status)
 
+    @property
+    def reused(self) -> int:
+        """Files an earlier run had finished, used again without redoing them."""
+        return sum(1 for entry in self.entries if entry.resumed)
+
+    @property
+    def redone(self) -> int:
+        """Files from an earlier run that had to be done again."""
+        return sum(1 for entry in self.entries if entry.redone)
+
     def to_dict(self) -> dict:
-        return {
+        data: dict[str, Any] = {
             "status": self.status.value,
             "engine": self.engine,
             "manifest": str(self.manifest) if self.manifest else None,
             "warnings": self.warnings,
             "entries": [entry.to_dict() for entry in self.entries],
         }
+        if self.resume:
+            data["resume"] = {"reused": self.reused, "redone": self.redone}
+        return data
 
 
 @dataclass(frozen=True)
@@ -114,6 +133,7 @@ class ProgressEvent:
     size: int = 0
     status: Status | None = None
     count: int = 0
+    resumed: bool = False  # a ``finish`` for a file reused from an earlier run
 
     def to_dict(self) -> dict:
         return {
@@ -122,6 +142,7 @@ class ProgressEvent:
             "size": self.size,
             "status": self.status.value if self.status else None,
             "count": self.count,
+            "resumed": self.resumed,
         }
 
 

@@ -22,6 +22,7 @@ from batchvault.errors import (  # noqa: E402
     ManifestError,
     OptionsError,
     OutputExistsError,
+    ResumeError,
     SignatureError,
     VolumeError,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "OptionsError",
     "OutputExistsError",
     "ProgressEvent",
+    "ResumeError",
     "RunResult",
     "SignatureError",
     "Status",

@@ -27,6 +27,7 @@ src/batchvault/
   blocks.py         block-parallel compression, format detection
   crypto.py         optional AES-256-GCM record encryption (native engine)
   signing.py        optional Ed25519 manifest signatures
+  resume.py         run journals (.batchvault-pack.jsonl / -unpack.jsonl) for --resume
   readme.py         BATCHVAULT-README.md: how the archive was made and restored
   logs.py, security.py, eta.py, doctor.py
   engines/          base, native, sevenzip, registry
@@ -63,6 +64,28 @@ written atomically and merged across runs.
 
 Because the manifest records every volume, a missing last volume is detected;
 without a manifest only gaps in the numbering can be.
+
+## Resuming (`--resume`)
+
+`pack` and `unpack` keep a JSON Lines journal in the output folder (`resume.py`):
+a header line with every setting of the run (no secrets), then one line per
+finished file (`pack`: its manifest entry; `unpack`: the path and SHA-256 of the
+file placed). Lines are appended and fsynced one at a time, so a crash loses at
+most the line being written, and a torn last line is ignored. The journal is
+removed when a run ends without failures.
+
+`--resume` reads the settings from the header instead of the command line (so
+there is nothing to mismatch) and refuses options that would change them.
+`pack` reuses a journaled file only after checking the source's size and mtime
+and re-hashing every volume against the journal; otherwise the file is made again
+through the usual staging and atomic install. `unpack` keeps a file that matches
+its manifest checksum, restores a missing one, redoes one it wrote that no longer
+matches, and never touches one it did not write. The manifest, signature and
+README are still written once at the end. Resume works file by file; continuing
+inside a single huge file is tracked separately (issue #9).
+
+When a worker raises or the user presses Ctrl+C, no further queued file is
+started (running ones finish), so each file is complete or absent.
 
 ## Encryption (`batchvault[crypto]`)
 

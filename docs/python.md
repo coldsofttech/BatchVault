@@ -47,6 +47,7 @@ bv.pack(
     password=None, retries=3, sign_key=None, sign_key_password=None,
     delete_source=False,
     readme=True,      # write BATCHVAULT-README.md next to the manifest
+    resume=False,     # continue an interrupted run (settings come from its journal)
     confirm=None, progress=None,
 )
 ```
@@ -60,6 +61,14 @@ bv.pack(
   never contains the password or keys. An existing file of that name is only
   replaced if BatchVault wrote it (it starts with a marker line); otherwise a
   warning is added to `RunResult.warnings`. Pass `readme=False` to skip it.
+- `resume=True` continues an interrupted run in `output` using the journal
+  `pack` keeps there (`.batchvault-pack.jsonl`). Every setting is taken from the
+  earlier run, so pass only `output` (plus `password` and `sign_key` if it used
+  them, and optionally `jobs`, `retries`, `seven_zip`, `confirm`, `progress`).
+  Passing another setting raises `OptionsError`; no journal, or a password, key or
+  source that does not match, raises `ResumeError`. Finished, unchanged files
+  whose volumes still match their checksums are reused
+  (`FileResult.resumed`); the rest are done again (`FileResult.redone` says why).
 - `delete_source=True` deletes each original after a restore-and-compare proves
   the archive. `confirm(paths) -> bool`, if given, is asked first; with no
   `confirm`, deletion is automatic once the check passes.
@@ -97,6 +106,15 @@ result = bv.verify("archives", against="originals", password=None, public_key=No
 ```
 
 `source` can be a manifest, a folder, any volume, or a list of volumes.
+
+`bv.unpack(output="restored", resume=True)` continues an interrupted restore from
+the journal in the output folder (`.batchvault-unpack.jsonl`); omit `source`, it
+is taken from the earlier run. Files that are already restored and match their
+checksum are kept, missing ones are restored, and a file the earlier run wrote
+that no longer matches is restored again. A different file that the run did not
+write is never touched. `force` and `update` cannot be combined with `resume`;
+pass `public_key` again if the earlier run required a signature. `RunResult.resume`
+is true for a resumed run, with `RunResult.reused` and `RunResult.redone`.
 `public_key` requires a valid manifest signature first. `max_output_size`
 (`"50g"` or bytes) refuses an archive that would expand beyond that size before
 anything is written; with a manifest, an archive can never expand beyond the

@@ -38,6 +38,27 @@ docker run --rm -v "$PWD:/data" ghcr.io/coldsofttech/batchvault:latest-7zip \
   pack report.pdf -o archives --engine 7zip
 ```
 
+## Resuming an interrupted run
+
+The journal that `--resume` needs is written to the output folder, so keep that
+folder on a mounted volume (`-v "$PWD:/data"` as above) and it survives the
+container. After an interruption, run the same image with `--resume` and no other
+settings:
+
+```
+docker run --rm -v "$PWD:/data" ghcr.io/coldsofttech/batchvault \
+  pack --resume -o archives
+```
+
+```
+docker run --rm -v "$PWD:/data" ghcr.io/coldsofttech/batchvault \
+  unpack --resume -o restored
+```
+
+Give the password again with `-e BATCHVAULT_PASSWORD` or `--password-file` if the
+first run was encrypted (it is never stored). The source files must be mounted at
+the same paths as in the first run.
+
 ## Passwords and keys
 
 Pass secrets through a mounted file or the environment, not on the command

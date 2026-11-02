@@ -94,6 +94,7 @@ subfolder (see "Folders are kept" below).
 | `--verify` | Test each archive after creating it | |
 | `--encrypt` | Encrypt (password from `BATCHVAULT_PASSWORD` or `--password-file`) | |
 | `--sign-key FILE` | Sign the manifest with this private key | |
+| `--resume` | Continue an interrupted run; takes every setting from the earlier run ([details](#resuming-an-interrupted-run)) | |
 | `--no-readme` | Do not write `BATCHVAULT-README.md` next to the manifest ([details](#the-readme-inside-the-archive)) | writes it |
 | `--delete-source` | Delete each original after a full restore-and-compare proves the archive | |
 | `--yes` | Do not ask before `--delete-source` deletes | |
@@ -109,6 +110,79 @@ subfolder (see "Folders are kept" below).
 
 `--delete-source` never deletes without an explicit `--yes` unless you answer
 `y` at a terminal prompt.
+
+### Resuming an interrupted run
+
+A run can stop part-way: Ctrl+C, a crash, a power cut, a dropped network drive or
+a CI time limit. While `pack` and `unpack` run, they keep a small journal in the
+output folder (`.batchvault-pack.jsonl` and `.batchvault-unpack.jsonl`). `--resume`
+continues from it instead of starting over:
+
+```
+batchvault pack --resume -o archives
+batchvault unpack --resume -o restored
+```
+
+**You give no other settings.** The first line of the journal records everything
+the run was started with (the files, engine, format, level, volume size,
+include/exclude patterns, `--update`, `--verify`, `--delete-source`, whether it
+is encrypted or signed, ...), so a resume cannot differ from the run it
+continues. Passing one of those options again with `--resume` is refused with
+an error that names it; options from a settings file are ignored.
+
+Options you may still give: `-o/--output` (where the journal is), `--jobs`,
+`--retries`, `--7z`, `--yes`, and the secrets below. Without `--jobs` and
+`--retries`, the earlier run's values are used.
+
+**Secrets are never stored.** If the earlier run was encrypted, give the password
+again (`BATCHVAULT_PASSWORD` or `--password-file`); if it signed the manifest,
+give `--sign-key` again; for `unpack --resume` after a `--public-key` run, give
+`--public-key` again. The password is checked against the files already made
+(the smallest intact archive is tested) so an archive never mixes passwords.
+
+With no journal, `--resume` stops with an error naming the file it looked for.
+Starting a run without `--resume` replaces any old journal in that folder.
+
+**`pack --resume`**
+
+- A file the journal lists is reused only if its source is unchanged (size and
+  modification time) and every volume exists with the recorded size and SHA-256.
+  Volumes are always re-hashed, never trusted by name: a power cut can leave files
+  that exist but are cut short. Anything else is made again, and the result says
+  why (`redone: volume x.bv.002 fails its checksum`).
+- The manifest, signature and `BATCHVAULT-README.md` are written at the end, as
+  in an uninterrupted run, from the reused and the new files together. The journal
+  is removed when no file failed; if one did, it stays so a later `--resume`
+  retries only that file.
+- A file is either complete or absent: volumes are built in a staging folder and
+  moved into place only when finished. Resume continues file by file; a file that
+  was in progress is made again from the start.
+- All source files must still exist. One that has gone is reported as failed.
+- `--delete-source` still deletes an original only after the archive is restored
+  and compared byte for byte (and confirmed), whether the archive was reused or
+  made now. A journal alone never leads to a deletion.
+- An archive made by resuming has the same files, volume layout and checksums as
+  an uninterrupted one for the built-in engine without encryption. An encrypted
+  archive gets a new random salt on every run, so only its restored files, not
+  its bytes, are identical.
+
+**`unpack --resume`**
+
+- A file already in the output folder that matches its checksum is kept; a
+  missing one is restored. Nothing reaches the output folder until it is verified:
+  files are restored in a staging folder first, as always.
+- A file that this run wrote earlier (it is in the journal) but that no longer
+  matches is restored again. A file that differs but was **not** written by this
+  run is never overwritten or deleted: it is reported as skipped (use `--force`
+  without `--resume` if you want it replaced). Other files in the folder are left
+  alone.
+- The journal remembers which manifest it was made for; if the manifest changed
+  since, resume is refused.
+
+`--resume` cannot be combined with `--force`, `--update` or `--dry-run`. In
+progress output and `--json`, reused files count as done (the bar and ETA do not
+treat them as new speed), and the result lists how many were reused and redone
+(`"resume": {"reused": 3, "redone": 1}`).
 
 ### The README inside the archive
 
@@ -193,7 +267,8 @@ checked against their checksums, and nothing is placed in the output folder if a
 check fails. Existing files are skipped unless `--force` is given; `--update`
 skips files that already match and replaces the rest.
 
-Other options: `-j`, `--retries`, `--7z`, `--password-file`, `--public-key FILE`
+Other options: `-j`, `--retries`, `--7z`, `--password-file`, `--public-key FILE`,
+`--resume` (continue an interrupted run; `SOURCE` is then not needed)
 (require a valid manifest signature first), and `--max-output-size SIZE`.
 
 `--max-output-size` (for example `50g`) refuses any archive that would expand

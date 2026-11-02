@@ -34,5 +34,9 @@ class ManifestError(BatchVaultError):
     """A manifest is missing, malformed or fails validation."""
 
 
+class ResumeError(BatchVaultError):
+    """A run cannot be resumed: no journal, or it is damaged or does not match."""
+
+
 class VolumeError(BatchVaultError):
     """Archive volumes are missing, incomplete or corrupt."""
