@@ -14,6 +14,6 @@ def fast_key_derivation(monkeypatch):
     The cost is stored in each archive's header, so archives still open; one test
     checks that the real default is strong.
     """
-    from batchvault import crypto
+    from batchvault.archive import crypto
 
     monkeypatch.setattr(crypto, "DEFAULT_LOG2_N", 14)

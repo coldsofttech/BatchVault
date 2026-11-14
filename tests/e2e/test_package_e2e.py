@@ -110,8 +110,18 @@ def test_wheel_contents(wheel):
         names = set(archive.namelist())
 
     assert "batchvault/py.typed" in names
-    for module in ("api", "cli", "ui", "engines/native", "engines/sevenzip"):
+    for module in (
+        "core/api/__init__",
+        "core/api/packing/run",
+        "cli/cli",
+        "cli/ui",
+        "engines/native",
+        "engines/sevenzip",
+    ):
         assert f"batchvault/{module}.py" in names
+    # Data files read at run time must ship in the wheel.
+    for data in ("core/data/levels.toml", "archive/templates/readme.md.tmpl"):
+        assert f"batchvault/{data}" in names
     assert not [n for n in names if n.startswith(("tests/", ".temp/", "docs/"))]
 
 
@@ -220,7 +230,7 @@ def test_crypto_extra_enables_encryption_and_signing(crypto_venv, tmp_path):
         "import sys, json\n"
         "from pathlib import Path\n"
         "import batchvault as bv\n"
-        "from batchvault import signing\n"
+        "from batchvault.archive import signing\n"
         "work = Path(sys.argv[1])\n"
         "source = work / 'notes.txt'\n"
         "source.write_text('hello ' * 1000)\n"

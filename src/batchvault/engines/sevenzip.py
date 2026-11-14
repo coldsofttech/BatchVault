@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from batchvault.engines.base import Capabilities, Engine
-from batchvault.errors import EngineError, EngineNotFoundError, OutputExistsError
-from batchvault.options import PackOptions
-from batchvault.volumes import existing_volumes, find_volumes, install_volumes
+
+if TYPE_CHECKING:
+    from batchvault.core.errors import EngineError
+    from batchvault.core.options import PackOptions
 
 ENV_VAR = "BATCHVAULT_7Z"
 COMMANDS = ("7zz", "7z", "7za", "7zr")
@@ -28,6 +26,9 @@ def _search_path(command: str) -> Path | None:
     that first) and ignores empty and relative ``PATH`` entries, so a program
     planted in the folder you happen to be working in is never run.
     """
+    import os
+    import sys
+
     cwd = Path.cwd().resolve()
     if sys.platform == "win32":
         extensions = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";")
@@ -58,6 +59,11 @@ def find_7zip(explicit: str | Path | None = None) -> Path:
     Order: explicit path, ``BATCHVAULT_7Z``, ``PATH`` (never the current folder),
     then well-known Windows install folders.
     """
+    import os
+    import sys
+
+    from batchvault.core.errors import EngineNotFoundError
+
     configured = explicit or os.environ.get(ENV_VAR)
     if configured:
         path = Path(configured).expanduser()
@@ -132,6 +138,8 @@ def build_test_command(
 
 def folder_size(folder: Path) -> int:
     """Total size of the files below ``folder`` (files that vanish are ignored)."""
+    import os
+
     total = 0
     for root, _, names in os.walk(folder):
         for name in names:
@@ -159,6 +167,8 @@ class SevenZipEngine(Engine):
         return self._executable
 
     def is_available(self) -> bool:
+        from batchvault.core.errors import EngineNotFoundError
+
         try:
             find_7zip(self._explicit)
         except EngineNotFoundError:
@@ -167,11 +177,15 @@ class SevenZipEngine(Engine):
 
     @staticmethod
     def _failure(code: int, output: str) -> EngineError:
+        from batchvault.core.errors import EngineError
+
         tail = "\n".join(output.strip().splitlines()[-OUTPUT_TAIL_LINES:])
         return EngineError(f"7-Zip failed (exit code {code}).\n{tail}".rstrip())
 
     def _run(self, command: list[str]) -> str:
         """Run 7-Zip; return its standard output, raise EngineError on failure."""
+        import subprocess
+
         result = subprocess.run(
             command,
             capture_output=True,
@@ -192,10 +206,15 @@ class SevenZipEngine(Engine):
         is still small instead of filling the disk. Output goes to a temporary
         file so a full pipe can never stall the program.
         """
+        from batchvault.core.errors import EngineError
+
         too_big = EngineError(
             f"The archive would expand beyond the allowed size ({max_bytes} bytes); "
             "extraction was stopped."
         )
+
+        import subprocess
+        import tempfile
 
         with tempfile.TemporaryFile() as output:
             process = subprocess.Popen(
@@ -227,6 +246,9 @@ class SevenZipEngine(Engine):
         return text
 
     def pack(self, source: Path, dest_dir: Path, options: PackOptions) -> list[Path]:
+        from batchvault.archive.volumes import existing_volumes, install_volumes
+        from batchvault.core.errors import EngineError, OutputExistsError
+
         if not source.is_file():
             raise FileNotFoundError(f"Source file not found: {source}")
 
@@ -240,6 +262,8 @@ class SevenZipEngine(Engine):
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         # Build in a temporary folder so a failed run never damages what exists.
+        import tempfile
+
         with tempfile.TemporaryDirectory(dir=dest_dir, prefix=".batchvault-") as tmp:
             staging = Path(tmp)
             self._run(
@@ -261,8 +285,15 @@ class SevenZipEngine(Engine):
         password: str | None = None,
         max_bytes: int | None = None,
     ) -> list[Path]:
+        import os
+
+        from batchvault.archive.volumes import find_volumes
+        from batchvault.core.errors import EngineError, OutputExistsError
+
         first = find_volumes(volume)[0]
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        import tempfile
 
         with tempfile.TemporaryDirectory(dir=output_dir, prefix=".batchvault-") as tmp:
             staging = Path(tmp)
@@ -299,5 +330,7 @@ class SevenZipEngine(Engine):
         return restored
 
     def test(self, volume: Path, *, password: str | None = None) -> None:
+        from batchvault.archive.volumes import find_volumes
+
         first = find_volumes(volume)[0]
         self._run(build_test_command(self.executable, first, password))

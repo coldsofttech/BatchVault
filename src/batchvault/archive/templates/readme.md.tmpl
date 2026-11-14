@@ -1,0 +1,74 @@
+$marker
+# About this archive
+
+This folder is a [BatchVault](https://github.com/coldsofttech/BatchVault) archive: your files, compressed and split into volumes, with a manifest that records every volume and its checksum. This file explains how it was made and how to get the files back.
+
+## How this archive was made
+
+- Created with BatchVault $version on $created
+- Files: $files, in $volumes volume(s)
+- Size: $original original, $stored stored
+- Manifest: `$manifest_name` (lists every volume with its SHA-256 checksum)
+
+Settings of the run that wrote this file:
+
+| Setting | Value |
+|---|---|
+| Engine | $engine |
+| Format | $format |
+| Compression level | $level |
+| Volume size | $volume_size |
+| Encrypted | $encrypted |
+| Signed manifest | $signed |
+| Include patterns | $include |
+| Exclude patterns | $exclude |
+| Update mode (`--update`) | $update |
+| Tested after creating | $verified |
+| Originals deleted | $delete_source |
+
+Each file's own engine, format and level are recorded in the manifest; after an `--update` run the files may have been archived at different times and with different settings.
+${encrypted_note}${signed_note}
+## Install BatchVault
+
+BatchVault needs Python 3.11.4 or later. To get exactly the version that made this archive:
+
+```
+pip install "batchvault${extra}==$version"
+```
+
+or with pipx or uv$crypto:
+
+```
+pipx install "batchvault${extra}==$version"
+uv tool install "batchvault${extra}==$version"
+```
+
+A newer version normally reads older archives too. Other ways to run it:
+
+- Docker: `ghcr.io/coldsofttech/batchvault:$version`$docker_variant
+- GitHub Action: `coldsofttech/BatchVault@v1`
+${sevenzip_note}
+## Restore the files
+
+$restore_intro
+
+```
+batchvault unpack $manifest_arg -o restored$sign_flag$pass_flag
+```
+
+The files appear in `restored/`, in the same folders they came from. Every volume and every restored file is checked against its checksum before it is placed there.
+
+To check the archive without restoring it:
+
+```
+batchvault verify $manifest_arg$sign_flag$pass_flag
+```
+
+### Other ways to restore
+
+`unpack` and `verify` accept any of these in place of the manifest:
+
+- a folder: `batchvault unpack . -o restored`
+${one_volume}- a list of volumes or manifests, one path per line: `batchvault unpack volumes.txt -o restored`
+
+Add `--public-key` to check a signature and `--password-file` for an encrypted archive. Run `batchvault unpack --help` for everything else.

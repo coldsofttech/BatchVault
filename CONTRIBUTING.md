@@ -20,7 +20,7 @@ uv run pytest -m "e2e and not docker"   # optional: end-to-end CLI and package t
 ```
 
 CI also runs the Docker and GitHub Action end-to-end tests; see
-[docs/testing.md](docs/testing.md).
+[docs/development.md](docs/development.md#testing).
 
 - Add or update tests for the behaviour you change.
 - Add a one or two line entry to `[Unreleased]` in `CHANGELOG.md`, written for
@@ -31,5 +31,6 @@ CI also runs the Docker and GitHub Action end-to-end tests; see
 
 ## Reporting problems
 
-Use the issue templates. For security problems, see [SECURITY.md](SECURITY.md)
-instead of opening a public issue.
+Use the issue templates, and see [SUPPORT.md](SUPPORT.md) for where to ask
+questions first. For security problems, see [SECURITY.md](SECURITY.md) instead of
+opening a public issue.

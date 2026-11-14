@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "batchvault"
-version = "0.1.0"
+version = "0.1.1"
 description = "Batch archive, compress, split and restore files with a native or 7-Zip engine."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -16,7 +16,7 @@ dependencies = ["rich>=13", "pathspec>=0.12"]
 crypto = ["cryptography>=42"]
 
 [project.scripts]
-batchvault = "batchvault.cli:main"
+batchvault = "batchvault.cli.cli:main"
 
 [dependency-groups]
 dev = [
