@@ -1,45 +1,36 @@
 from __future__ import annotations
 
-import os
-import tarfile
-import tempfile
-import zlib
-from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
-from batchvault import crypto
-from batchvault.blocks import (
-    BLOCK_SIZE,
-    BlockWriter,
-    check_format,
-    open_decompressed,
-    sniff_archive,
-)
+from batchvault.archive.blocks import BLOCK_SIZE
+from batchvault.core.options import MIB
 from batchvault.engines.base import Capabilities, Engine
-from batchvault.errors import EngineError, OutputExistsError
-from batchvault.names import unsafe_on_windows as _unsafe_on_windows
-from batchvault.options import MIB, PackOptions
-from batchvault.volumes import (
-    VolumeReader,
-    VolumeWriter,
-    existing_volumes,
-    find_volumes,
-    install_volumes,
-)
 
-try:
-    import lzma
+if TYPE_CHECKING:
+    import tarfile
+    from pathlib import Path
+    from typing import Any
 
-    _LZMA_ERRORS: tuple[type[Exception], ...] = (lzma.LZMAError,)
-except ImportError:
-    _LZMA_ERRORS = ()
-
-# Errors raised while reading damaged, truncated or unreadable archive data.
-_READ_ERRORS = (tarfile.TarError, EOFError, zlib.error, OSError, *_LZMA_ERRORS)
+    from batchvault.core.options import PackOptions
 
 _STREAM_BUFFER = MIB
 _CHUNK = MIB
 # Data allowed after the tar end marker; a real archive has only padding.
 _MAX_TRAILING = 4 * MIB
+
+
+def _read_errors() -> tuple[type[BaseException], ...]:
+    """Errors raised while reading damaged, truncated or unreadable archive data."""
+    import tarfile
+    import zlib
+
+    try:
+        import lzma
+
+        lzma_errors: tuple[type[Exception], ...] = (lzma.LZMAError,)
+    except ImportError:
+        lzma_errors = ()
+    return (tarfile.TarError, EOFError, zlib.error, OSError, *lzma_errors)
 
 
 def _normalize(info: tarfile.TarInfo) -> tarfile.TarInfo:
@@ -56,6 +47,8 @@ class _Budget:
         self.remaining = limit
 
     def charge(self, member: tarfile.TarInfo) -> None:
+        from batchvault.core.errors import EngineError
+
         if self.remaining is None:
             return
         if member.size > self.remaining:
@@ -68,6 +61,12 @@ class _Budget:
 
 def _check_member(member: tarfile.TarInfo, windows: bool | None = None) -> None:
     """Accept only a plain, single-part regular file name that is safe to write."""
+    import os
+    from pathlib import PurePosixPath
+
+    from batchvault.core.errors import EngineError
+    from batchvault.core.names import unsafe_on_windows as _unsafe_on_windows
+
     if windows is None:
         windows = os.name == "nt"
 
@@ -98,6 +97,16 @@ class NativeEngine(Engine):
         return True
 
     def pack(self, source: Path, dest_dir: Path, options: PackOptions) -> list[Path]:
+        from pathlib import Path
+
+        from batchvault.archive.blocks import BlockWriter, check_format
+        from batchvault.archive.volumes import (
+            VolumeWriter,
+            existing_volumes,
+            install_volumes,
+        )
+        from batchvault.core.errors import OutputExistsError
+
         if not source.is_file():
             raise FileNotFoundError(f"Source file not found: {source}")
         check_format(options.format)
@@ -108,6 +117,11 @@ class NativeEngine(Engine):
             raise OutputExistsError(
                 f"Archive volumes already exist in {dest_dir}. Use --force to replace."
             )
+
+        import tarfile
+        import tempfile
+
+        from batchvault.archive import crypto
 
         header = cipher = None
         if options.password:
@@ -147,6 +161,12 @@ class NativeEngine(Engine):
         password: str | None = None,
         max_bytes: int | None = None,
     ) -> list[Path]:
+        import os
+        from pathlib import Path
+
+        from batchvault.archive.volumes import find_volumes
+        from batchvault.core.errors import EngineError, OutputExistsError
+
         volumes = find_volumes(volume)
         output_dir.mkdir(parents=True, exist_ok=True)
         budget = _Budget(max_bytes)
@@ -154,6 +174,8 @@ class NativeEngine(Engine):
         def handle(member, tar) -> None:
             budget.charge(member)  # refuse a decompression bomb before writing
             self._extract(member, tar, staging)
+
+        import tempfile
 
         with tempfile.TemporaryDirectory(dir=output_dir, prefix=".batchvault-") as tmp:
             staging = Path(tmp)
@@ -183,12 +205,16 @@ class NativeEngine(Engine):
         return restored
 
     def test(self, volume: Path, *, password: str | None = None) -> None:
+        from batchvault.archive.volumes import find_volumes
+
         self._read(find_volumes(volume), self._drain_member, password)
 
     @staticmethod
     def _extract(member, tar, staging: Path) -> None:
         # Belt and braces next to _check_member and the "data" filter: whatever
         # the name looks like, the file must end up inside the staging folder.
+        from batchvault.core.errors import EngineError
+
         root = staging.resolve()
         if root not in (root / member.name).resolve().parents:
             raise EngineError(f"Unsafe entry in archive: {member.name!r}")
@@ -203,16 +229,25 @@ class NativeEngine(Engine):
     @staticmethod
     def _read(volumes: list[Path], handle_member, password: str | None) -> None:
         """Stream the archive and call ``handle_member(member, tar)`` for each file."""
+        from batchvault.archive.blocks import open_decompressed, sniff_archive
+        from batchvault.archive.volumes import VolumeReader
+        from batchvault.core.errors import EngineError
+
         fmt, encrypted = sniff_archive(volumes[0])
         if encrypted and not password:
             raise EngineError(
                 f"{volumes[0].name} is encrypted. A password is required."
             )
 
+        import tarfile
+
+        from batchvault.archive import crypto
+
         try:
             with VolumeReader(volumes) as reader:
-                source = reader
+                source: Any = reader
                 if encrypted:
+                    assert password is not None  # checked above
                     fmt, source = crypto.open_decrypted(reader, password)
 
                 with open_decompressed(fmt, source) as stream:
@@ -231,7 +266,7 @@ class NativeEngine(Engine):
                                 f"{volumes[0].name} has unexpected data after the "
                                 "end of the archive."
                             )
-        except _READ_ERRORS as exc:
+        except _read_errors() as exc:
             raise EngineError(
                 f"Archive is corrupt or incomplete ({volumes[0].name}): {exc}"
             ) from exc

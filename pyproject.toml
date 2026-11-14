@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "batchvault"
-version = "0.1.0"
+version = "0.1.1"
 description = "Batch archive, compress, split and restore files with a native or 7-Zip engine."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -16,13 +16,14 @@ dependencies = ["rich>=13", "pathspec>=0.12"]
 crypto = ["cryptography>=42"]
 
 [project.scripts]
-batchvault = "batchvault.cli:main"
+batchvault = "batchvault.cli.cli:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8",
     "pytest-xdist>=3",
     "ruff>=0.6",
+    "mypy>=1.10",
     "pre-commit>=3",
     "cryptography>=42",
 ]
@@ -43,6 +44,10 @@ markers = [
     "package: e2e tests that build the wheel and install it into a fresh environment",
     "docker: e2e tests that build and run the Docker images (need Docker)",
 ]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.11"
 
 [tool.ruff]
 line-length = 88

@@ -1,0 +1,13 @@
+[defaults]
+profiles = ["python"]
+risk = "safe"
+
+[clean]
+# Wheel and sdist output from `uv build` (also written by the package end-to-end test); it is
+# rebuilt on demand. Build output is opt-in because it is slow to rebuild for some projects.
+enable = ["python.build", "python.dist"]
+# Exclusions always win over cleanup rules. Keep the uv environment between commits.
+exclude = [".venv/"]
+
+[hook]
+quiet = true

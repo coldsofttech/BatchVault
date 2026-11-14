@@ -5,31 +5,83 @@ for the original requirements.
 
 ## Layers
 
-The command-line interface is a thin wrapper over the Python API in `api.py`.
+The command-line interface is a thin wrapper over the Python API in `core/api/`.
 The API never imports `rich`; it reports progress through an optional callback
 and the CLI renders it.
 
 ```
 src/batchvault/
-  api.py            pack, unpack, verify, inspect, list_files, list_archives
-  cli.py            argparse commands, exit codes, JSON / event output
-  ui.py             Rich progress, tables, panels (CLI only)
-  notify.py         webhook notifications (CLI only)
-  config.py         batchvault.toml / [tool.batchvault] -> option defaults
-  models.py         Status, FileResult, RunResult, ProgressEvent, InspectEntry
-  options.py        PackOptions, size parsing, formats
-  errors.py         exception hierarchy
-  inputs.py         list files (text/JSON/stdin), dedupe, conflict checks
-  filters.py        include / exclude via pathspec (gitignore-style)
-  locate.py         resolve a manifest / folder / volume / list to archives
-  manifest.py       manifest read / write / validate, SHA-256 helpers
-  volumes.py        volume naming, discovery, writer/reader, staging cleanup
-  blocks.py         block-parallel compression, format detection
-  crypto.py         optional AES-256-GCM record encryption (native engine)
-  signing.py        optional Ed25519 manifest signatures
-  logs.py, security.py, eta.py, doctor.py
-  engines/          base, native, sevenzip, registry
+  __init__.py       public names (pack, unpack, ...), loaded on first use
+  __main__.py       python -m batchvault
+  core/             the Python API and what it is built on
+    api/            the public operations
+      packing/      pack: run (the operation), plan (what to pack, reuse checks),
+                    single (one file), finish (README, signature, source deletion)
+      unpacking/    unpack: run (the operation), restore (one file)
+      verifying.py  verify
+      listing.py    inspect, list_files, list_archives
+      _common.py    retry, job splitting, progress and target helpers shared by them
+    config.py       batchvault.toml / [tool.batchvault] -> option defaults
+    models.py       Status, FileResult, RunResult, ProgressEvent, InspectEntry
+    options.py      PackOptions, size parsing, formats
+    errors.py       exception hierarchy
+    inputs.py       list files (text/JSON/stdin), dedupe, conflict checks
+    filters.py      include / exclude via pathspec (gitignore-style)
+    locate.py       resolve a manifest / folder / volume / list to archives
+    levels.py       --level auto: picks a level per file (signature, then extension)
+    data/           levels.toml: extension groups and the level for each
+    names.py, security.py, eta.py
+  archive/          the on-disk archive format
+    manifest.py     manifest read / write / validate, SHA-256 helpers
+    volumes.py      volume naming, discovery, writer/reader, staging cleanup
+    blocks.py       block-parallel compression, format detection
+    crypto.py       optional AES-256-GCM record encryption (native engine)
+    signing.py      optional Ed25519 manifest signatures
+    resume.py       run journals (.batchvault-pack.jsonl / -unpack.jsonl) for --resume
+    readme.py       BATCHVAULT-README.md: how the archive was made and restored
+    templates/      the text of that README (string.Template files)
+  engines/          base (interface), native, sevenzip, registry (engine choice)
+  cli/              command-line interface
+    cli.py          main(): config, logging, dispatch, exit codes
+    parser.py       argparse definition of every command and option
+    commands/       one module per command: pack, unpack, verify, inspect, listing
+                    (list files / archives), keys (keygen, sign), doctor
+    _common.py      output, password and notify helpers shared by the commands
+    ui.py           Rich progress, tables, panels (CLI only)
+    notify.py       webhook notifications (CLI only)
+    logs.py         per-run log file and redaction
+    doctor.py       the checks behind `batchvault doctor`
 ```
+
+Dependencies point one way: `cli` uses `core`, and `core` uses `archive` and
+`engines`. `archive` and `engines` use only the small shared modules in `core`
+(`errors`, `options`, `names`, `security`) and never `core/api`. Only `__main__.py`
+and `cli` itself import `cli`.
+
+## Imports and start-up
+
+Imports are lazy: a module imports what it needs inside the function that uses it,
+and names used only in annotations sit under `TYPE_CHECKING`. A name that a class
+body, a default argument or a module constant needs when the module loads (a base
+class, a compiled regular expression, `MIB`) stays at the top of its module. This
+keeps `import batchvault` cheap and means a command pays only for the code it runs:
+`batchvault --help`, for example, loads neither `cryptography` nor `pathspec`.
+
+The public names (`pack`, `unpack`, `verify`, `inspect`, `list_files`,
+`list_archives`, `Status`, the error classes and so on) are loaded on first use
+through a `_LAZY` table and `__getattr__` in `batchvault/__init__.py`, and the same
+pattern is used by `core/api/__init__.py`. A new public name goes in `_LAZY`,
+`__all__` and the `TYPE_CHECKING` block.
+
+Settings that are data rather than logic live in files read on first use:
+`core/data/levels.toml` (which compression level suits which file type) and
+`archive/templates/*.md.tmpl` (the generated README text).
+
+## Tests
+
+`tests/unit/` mirrors this tree (`core/`, `core/api/`, `archive/`, `engines/`,
+`cli/`); `tests/integration/` has `native/` and `sevenzip/` runs; `tests/e2e/` tests
+the installed program. See [Testing in development.md](development.md#testing).
 
 ## Engines
 
@@ -52,7 +104,7 @@ src/batchvault/
 
 JSON, `schema_version` 1: one entry per source file with name, `folder` (its
 folder under the stored root, forward slashes, `""` when not in a subfolder;
-chosen by `inputs.assign_folders`: an explicit `--root`, else the root recorded by
+chosen by `core/inputs.py::assign_folders`: an explicit `--root`, else the root recorded by
 `list files`, else the deepest folder the files share; validated so
 it can never be absolute or contain `..`), size, SHA-256,
 engine, format, level, volume size, `encrypted`, `mtime_ns` and an ordered
@@ -62,6 +114,28 @@ written atomically and merged across runs.
 
 Because the manifest records every volume, a missing last volume is detected;
 without a manifest only gaps in the numbering can be.
+
+## Resuming (`--resume`)
+
+`pack` and `unpack` keep a JSON Lines journal in the output folder (`archive/resume.py`):
+a header line with every setting of the run (no secrets), then one line per
+finished file (`pack`: its manifest entry; `unpack`: the path and SHA-256 of the
+file placed). Lines are appended and fsynced one at a time, so a crash loses at
+most the line being written, and a torn last line is ignored. The journal is
+removed when a run ends without failures.
+
+`--resume` reads the settings from the header instead of the command line (so
+there is nothing to mismatch) and refuses options that would change them.
+`pack` reuses a journaled file only after checking the source's size and mtime
+and re-hashing every volume against the journal; otherwise the file is made again
+through the usual staging and atomic install. `unpack` keeps a file that matches
+its manifest checksum, restores a missing one, redoes one it wrote that no longer
+matches, and never touches one it did not write. The manifest, signature and
+README are still written once at the end. Resume works file by file; continuing
+inside a single huge file is tracked separately (issue #9).
+
+When a worker raises or the user presses Ctrl+C, no further queued file is
+started (running ones finish), so each file is complete or absent.
 
 ## Encryption (`batchvault[crypto]`)
 
@@ -83,7 +157,7 @@ without a manifest only gaps in the numbering can be.
 Ed25519. `<manifest>.sig` holds a base64 signature over the exact manifest
 bytes. `unpack` and `verify` accept `--public-key` to require a valid signature
 before touching any archive. The signature is checked on the exact bytes that are
-then parsed (`locate.resolve_targets` takes a manifest loader), so the file
+then parsed (`core/locate.py::resolve_targets` takes a manifest loader), so the file
 cannot be swapped between the check and the use. A signature proves who made a
 manifest, not that it is the latest one: replacing a manifest and its volumes
 with an older, validly signed set is not detected. Changing the manifest without re-signing removes
@@ -113,8 +187,8 @@ without a terminal and without `--yes` nothing is deleted.
 up from the current folder or given with `--config` / `BATCHVAULT_CONFIG`.
 Precedence: command line, then config file, then built-in defaults. A file found
 by searching (not named with `--config` / `BATCHVAULT_CONFIG`) is rejected if it
-sets any option in `config.RESTRICTED_OPTIONS` (programs, webhooks, trusted keys,
-password files, log files, deletion). See `docs/configuration.md`.
+sets any option in `core/config.py::RESTRICTED_OPTIONS` (programs, webhooks, trusted keys,
+password files, log files, deletion). See [the configuration guide](guides/configuration.md).
 
 ## Hardening notes
 

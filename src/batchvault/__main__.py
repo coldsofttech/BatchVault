@@ -1,3 +1,3 @@
-from batchvault.cli import main
+from batchvault.cli.cli import main
 
 raise SystemExit(main())

@@ -98,18 +98,18 @@ Things to know:
   one made each file.
 - Videos, photos and other already-compressed files do not shrink, whatever the
   level. For them use `--format store`. See the
-  [compression guide](docs/compression.md) for choosing a format and level, and
+  [compression guide](docs/guides/compression.md) for choosing a format and level, and
   for memory use.
 
 ## Use
 
 | I want to use BatchVault... | Read |
 |---|---|
-| in a terminal | [Command line guide](docs/cli.md) |
-| in my own Python code | [Python guide](docs/python.md) |
-| in a GitHub workflow | [GitHub Action guide](docs/github-action.md) |
-| in a container | [Docker guide](docs/docker.md) |
-| choosing a format and level | [Compression guide](docs/compression.md) |
+| in a terminal | [Command line guide](docs/guides/cli.md) |
+| in my own Python code | [Python guide](docs/guides/python.md) |
+| in a GitHub workflow | [GitHub Action guide](docs/guides/github-action.md) |
+| in a container | [Docker guide](docs/guides/docker.md) |
+| choosing a format and level | [Compression guide](docs/guides/compression.md) |
 
 A **source** is an original file; an **archive** is the set of volumes made from
 it. `pack` turns sources into archives, `unpack` turns archives back into files.
@@ -230,7 +230,7 @@ update = true
 ```
 
 Command-line options always win over the file. See
-[docs/configuration.md](docs/configuration.md) for every setting and the
+[docs/guides/configuration.md](docs/guides/configuration.md) for every setting and the
 environment variables.
 
 ## Check your setup
@@ -257,9 +257,9 @@ logged, and web addresses with credentials in them are masked.
 The newest 20 logs are kept. Change the folder with `BATCHVAULT_LOG_DIR`, pick a
 file with `--log-file`, or turn logging off with `--no-log`.
 
-## Contributing and security
+## Support, contributing and security
 
-Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
+For help, see [SUPPORT.md](SUPPORT.md). Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
 follow the [code of conduct](CODE_OF_CONDUCT.md). To report a vulnerability,
 please read [SECURITY.md](SECURITY.md) first and do not open a public issue.
 Technical notes live in [docs/architecture.md](docs/architecture.md) and

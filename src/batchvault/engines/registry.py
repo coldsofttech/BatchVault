@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from batchvault.engines.base import Engine
-from batchvault.engines.native import NativeEngine
-from batchvault.engines.sevenzip import SevenZipEngine, find_7zip
-from batchvault.errors import InputError
-from batchvault.volumes import split_volume_name
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from batchvault.engines.base import Engine
 
 ENGINE_CHOICES = ("auto", "native", "7zip")
 
@@ -17,19 +16,31 @@ def get_engine(name: str = "auto", seven_zip: str | Path | None = None) -> Engin
     ``auto`` uses 7-Zip when it is found (or when a path to it was given) and
     falls back to the native engine.
     """
+    from batchvault.core.errors import InputError
+
     if name == "native":
+        from batchvault.engines.native import NativeEngine
+
         return NativeEngine()
 
     if name in ("7zip", "7z"):
+        from batchvault.engines.sevenzip import SevenZipEngine, find_7zip
+
         find_7zip(seven_zip)  # raises EngineNotFoundError with install help
         return SevenZipEngine(seven_zip)
 
     if name == "auto":
+        from batchvault.engines.sevenzip import SevenZipEngine, find_7zip
+
         if seven_zip:
             find_7zip(seven_zip)
             return SevenZipEngine(seven_zip)
         sevenzip = SevenZipEngine()
-        return sevenzip if sevenzip.is_available() else NativeEngine()
+        if sevenzip.is_available():
+            return sevenzip
+        from batchvault.engines.native import NativeEngine
+
+        return NativeEngine()
 
     choices = ", ".join(ENGINE_CHOICES)
     raise InputError(f"Unknown engine {name!r}. Choose from: {choices}.")
@@ -37,17 +48,24 @@ def get_engine(name: str = "auto", seven_zip: str | Path | None = None) -> Engin
 
 def engine_for_volume(volume: Path, seven_zip: str | Path | None = None) -> Engine:
     """Pick the engine that can read a volume, from its file name."""
+    from batchvault.archive.volumes import split_volume_name
+    from batchvault.core.errors import InputError
+
     parsed = split_volume_name(volume.name)
     if parsed is None:
         raise InputError(f"Not an archive volume: {volume}")
     if parsed[0].lower().endswith(".7z"):
+        from batchvault.engines.sevenzip import SevenZipEngine, find_7zip
+
         find_7zip(seven_zip)
         return SevenZipEngine(seven_zip)
+    from batchvault.engines.native import NativeEngine
+
     return NativeEngine()
 
 
 def option_warnings(
-    engine: Engine, format_given: str | None, level: int
+    engine: Engine, format_given: str | None, level: int | str
 ) -> list[str]:
     """Settings the chosen engine cannot honour exactly."""
     warnings = []

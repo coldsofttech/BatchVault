@@ -1,0 +1,64 @@
+# Compression level chosen for each kind of file by ``--level auto``.
+#
+# A file's signature (its first bytes) is checked first; an already compressed
+# signature always gets the "incompressible" group's level, which must stay. Otherwise
+# the extension is looked up in the groups below, in order, and the first match wins. Level 0 means
+# "do not try"; levels run from 0 to 9. Extensions are lower case, without the dot.
+
+# Level for a file that matches no group.
+default_level = 5
+default_kind = "unknown type"
+
+# Formats that are already compressed (or encrypted): nothing left to squeeze.
+[incompressible]
+kind = "already compressed"
+level = 0
+extensions = [
+    "zip", "7z", "rar", "gz", "tgz", "xz", "txz", "bz2", "tbz2", "zst", "lz4", "lzma", "z",
+    "cab", "jar", "war", "ear", "apk", "ipa", "docx", "xlsx", "pptx", "odt", "ods", "odp",
+    "epub", "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "cr2", "nef", "arw",
+    "dng", "orf", "rw2", "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpg",
+    "mpeg", "m2ts", "3gp", "mp3", "aac", "m4a", "ogg", "oga", "opus", "flac", "wma", "wv",
+]
+
+# Plain text and similar: very repetitive, so a strong level pays off.
+[text]
+kind = "text"
+level = 6
+extensions = [
+    "txt", "log", "csv", "tsv", "json", "jsonl", "ndjson", "xml", "html", "htm", "xhtml",
+    "css", "scss", "sass", "less", "js", "mjs", "jsx", "tsx", "md", "markdown", "rst", "yaml",
+    "yml", "toml", "ini", "cfg", "conf", "properties", "sql", "py", "pyi", "java", "kt", "c",
+    "h", "cc", "cpp", "hpp", "cs", "go", "rs", "rb", "php", "swift", "sh", "bash", "zsh",
+    "bat", "cmd", "ps1", "tex", "bib", "srt", "vtt", "ass", "svg", "rtf", "eml", "ics", "vcf",
+    "gpx", "kml", "diff", "patch", "gradle", "tf", "ipynb", "r", "pl", "lua", "dart", "scala",
+    "vue",
+]
+
+# Uncompressed pictures and sound.
+[media]
+kind = "uncompressed media"
+level = 6
+extensions = [
+    "wav", "aiff", "aif", "bmp", "tif", "tiff", "ppm", "pgm", "pbm", "tga", "dds", "pcm",
+    "psd",
+]
+
+# Programs, disk images, databases and containers: compressible, but the
+# strongest levels gain little for the memory they need.
+[binary]
+kind = "binary data"
+level = 5
+extensions = [
+    "exe", "dll", "so", "dylib", "o", "a", "lib", "class", "pyc", "wasm", "iso", "img", "vhd",
+    "vhdx", "vmdk", "qcow2", "vdi", "db", "sqlite", "sqlite3", "mdb", "bak", "dump", "pak",
+    "tar",
+]
+
+# PDF documents.
+[pdf]
+kind = "pdf"
+level = 3
+extensions = [
+    "pdf",
+]

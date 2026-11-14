@@ -3,3 +3,6 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/coldsofttech/BatchVault/security/advisories/new
     about: Please report security problems privately.
+  - name: Questions and support
+    url: https://github.com/coldsofttech/BatchVault/blob/main/SUPPORT.md
+    about: See how to get help before opening an issue.

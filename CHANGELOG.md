@@ -1,12 +1,26 @@
 # Changelog
 
-All notable changes to this project are documented here.
+All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.1.1] - 2026-11-14
+
+### Added
+
+- `--resume` for `pack` and `unpack` continues an interrupted run, reusing the files that already finished and checking them first. Also in Python, the GitHub Action and Docker.
+- `pack` writes a `BATCHVAULT-README.md` next to the manifest with how the archive was made and the commands to restore it. It never holds a password or key; `--no-readme` turns it off.
+
+### Changed
+
+- Pressing Ctrl+C now stops starting new files instead of working through the whole queue.
+- The Python modules were reorganised. `import batchvault as bv`, the command and the GitHub Action work as before, but code that imported internal modules directly must update those imports.
 
 ## [0.1.0] - 2026-10-24
 
 First release.
+
+### Added
 
 - Archive many files at once into volumes of a size you choose, and restore them from a manifest, a folder, any single volume or a list.
 - Two engines: a built-in one that needs nothing installed (xz, gzip, bzip2 or no compression) and an optional 7-Zip engine.
@@ -21,6 +35,3 @@ First release.
 - A Python API, a GitHub Action (`coldsofttech/BatchVault@v1`) and Docker images with and without 7-Zip.
 - Sensible defaults: `--level auto`, no worker threads (`--jobs 0`) and three retries.
 - Requires Python 3.11.4 or later.
-
-[Unreleased]: https://github.com/coldsofttech/BatchVault/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/coldsofttech/BatchVault/releases/tag/v0.1.0

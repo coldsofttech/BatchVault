@@ -93,6 +93,12 @@ inputs:
   public-key:
     description: Public key; unpack and verify then require a valid signature.
     default: ""
+  resume:
+    description: >-
+      Continue an interrupted pack or unpack in the output folder. Every
+      setting comes from the earlier run, so only output, password, sign-key,
+      public-key and seven-zip are used; the other inputs are ignored.
+    default: "false"
   fail-on-error:
     description: Fail the step if any file failed or was skipped.
     default: "true"
@@ -153,6 +159,7 @@ runs:
         AGAINST: ${{ inputs.against }}
         SEVEN_ZIP: ${{ inputs.seven-zip }}
         UPDATE: ${{ inputs.update }}
+        RESUME: ${{ inputs.resume }}
         RETRIES: ${{ inputs.retries }}
         ENCRYPT: ${{ inputs.encrypt }}
         SIGN_KEY: ${{ inputs.sign-key }}
@@ -176,34 +183,45 @@ runs:
         # with "-" is never read as an option.
         args=(--json)
         positional=()
-        [ -n "$JOBS" ] && args+=(--jobs "$JOBS")
+        # A resumed run takes jobs and retries from the earlier run.
+        [ "$RESUME" != "true" ] && [ -n "$JOBS" ] && args+=(--jobs "$JOBS")
         [ -n "$SEVEN_ZIP" ] && args+=(--7z "$SEVEN_ZIP")
 
         case "$COMMAND" in
           pack)
-            while IFS= read -r line; do [ -n "$line" ] && positional+=("$line"); done <<< "$FILES"
-            [ -n "$LIST_FILE" ] && args+=(--list "$LIST_FILE")
-            [ -n "$OUTPUT" ] && args+=(--output "$OUTPUT")
-            args+=(--engine "$ENGINE" --level "$LEVEL" --volume-size "$VOLUME_SIZE")
-            [ -n "$FORMAT" ] && args+=(--format "$FORMAT")
-            [ -n "$MANIFEST" ] && args+=(--manifest "$MANIFEST")
-            [ -n "$ROOT" ] && args+=(--root "$ROOT")
-            while IFS= read -r line; do [ -n "$line" ] && args+=(--include "$line"); done <<< "$INCLUDE"
-            while IFS= read -r line; do [ -n "$line" ] && args+=(--exclude "$line"); done <<< "$EXCLUDE"
-            [ "$VERIFY" = "true" ] && args+=(--verify)
-            [ "$FORCE" = "true" ] && args+=(--force)
-            [ "$UPDATE" = "true" ] && args+=(--update)
-            [ -n "$RETRIES" ] && args+=(--retries "$RETRIES")
-            [ "$ENCRYPT" = "true" ] && args+=(--encrypt)
-            [ -n "$SIGN_KEY" ] && args+=(--sign-key "$SIGN_KEY")
+            if [ "$RESUME" = "true" ]; then
+              args+=(--resume)
+              [ -n "$OUTPUT" ] && args+=(--output "$OUTPUT")
+              [ -n "$SIGN_KEY" ] && args+=(--sign-key "$SIGN_KEY")
+            else
+              while IFS= read -r line; do [ -n "$line" ] && positional+=("$line"); done <<< "$FILES"
+              [ -n "$LIST_FILE" ] && args+=(--list "$LIST_FILE")
+              [ -n "$OUTPUT" ] && args+=(--output "$OUTPUT")
+              args+=(--engine "$ENGINE" --level "$LEVEL" --volume-size "$VOLUME_SIZE")
+              [ -n "$FORMAT" ] && args+=(--format "$FORMAT")
+              [ -n "$MANIFEST" ] && args+=(--manifest "$MANIFEST")
+              [ -n "$ROOT" ] && args+=(--root "$ROOT")
+              while IFS= read -r line; do [ -n "$line" ] && args+=(--include "$line"); done <<< "$INCLUDE"
+              while IFS= read -r line; do [ -n "$line" ] && args+=(--exclude "$line"); done <<< "$EXCLUDE"
+              [ "$VERIFY" = "true" ] && args+=(--verify)
+              [ "$FORCE" = "true" ] && args+=(--force)
+              [ "$UPDATE" = "true" ] && args+=(--update)
+              [ -n "$RETRIES" ] && args+=(--retries "$RETRIES")
+              [ "$ENCRYPT" = "true" ] && args+=(--encrypt)
+              [ -n "$SIGN_KEY" ] && args+=(--sign-key "$SIGN_KEY")
+            fi
             out_dir="${OUTPUT:-archives}"
             ;;
           unpack)
-            positional+=("$SOURCE")
+            if [ "$RESUME" = "true" ]; then
+              args+=(--resume)
+            else
+              positional+=("$SOURCE")
+              [ "$FORCE" = "true" ] && args+=(--force)
+              [ "$UPDATE" = "true" ] && args+=(--update)
+              [ -n "$RETRIES" ] && args+=(--retries "$RETRIES")
+            fi
             [ -n "$OUTPUT" ] && args+=(--output "$OUTPUT")
-            [ "$FORCE" = "true" ] && args+=(--force)
-            [ "$UPDATE" = "true" ] && args+=(--update)
-            [ -n "$RETRIES" ] && args+=(--retries "$RETRIES")
             [ -n "$PUBLIC_KEY" ] && args+=(--public-key "$PUBLIC_KEY")
             out_dir="${OUTPUT:-restored}"
             ;;
